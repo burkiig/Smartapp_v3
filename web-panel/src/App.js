@@ -2,9 +2,11 @@ import React from 'react';
 import './App.css';
 import { LoginPage } from './pages/LoginPage';
 import { useAuth } from './features/auth/hooks';
-import { InstructorDashboardPage } from './features/dashboard/pages';
-import StudentDashboard from './components/StudentDashboard';
-import AdminDashboard from './components/AdminDashboard';
+import { 
+  InstructorDashboardPage, 
+  AdminDashboardPage, 
+  StudentDashboardPage 
+} from './features/dashboard/pages';
 
 function App() {
   const { user, isLoading, logout } = useAuth();
@@ -27,37 +29,9 @@ function App() {
     case 'instructor':
       return <InstructorDashboardPage user={user} onLogout={logout} />;
     case 'student':
-      return (
-        <div className="App">
-          <header className="app-header">
-            <div className="header-content">
-              <h1 className="header-title">Smart Attendance System</h1>
-              <p className="header-subtitle">Student Portal</p>
-            </div>
-            <button className="logout-button" onClick={logout}>
-              <span className="logout-icon">🚪</span>
-              Logout
-            </button>
-          </header>
-          <StudentDashboard user={user} />
-        </div>
-      );
+      return <StudentDashboardPage user={user} onLogout={logout} />;
     case 'admin':
-      return (
-        <div className="App">
-          <header className="app-header admin-header">
-            <div className="header-content">
-              <h1 className="header-title">Smart Attendance System</h1>
-              <p className="header-subtitle">Admin Portal</p>
-            </div>
-            <button className="logout-button" onClick={logout}>
-              <span className="logout-icon">🚪</span>
-              Logout
-            </button>
-          </header>
-          <AdminDashboard user={user} />
-        </div>
-      );
+      return <AdminDashboardPage user={user} onLogout={logout} />;
     default:
       return (
         <div className="error-container">
