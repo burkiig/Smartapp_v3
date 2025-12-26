@@ -4,8 +4,8 @@ import Dashboard from '../../../components/Dashboard';
 import WeeklySchedule from '../../../components/WeeklySchedule';
 import Register from '../../../components/Register';
 import { AttendancePage } from '../../attendance/pages';
-import Students from '../../../components/Students';
-import Records from '../../../components/Records';
+import { StudentsPage } from '../../attendance/pages/StudentsPage';
+import { RecordsPage } from '../../attendance/pages/RecordsPage';
 import Settings from '../../../components/Settings';
 import './InstructorDashboardPage.css';
 
@@ -33,9 +33,9 @@ export const InstructorDashboardPage = ({ user, onLogout }) => {
       case 'attendance':
         return <AttendancePage />;
       case 'students':
-        return <Students />;
+        return <StudentsPage />;
       case 'reports':
-        return <Records />;
+        return <RecordsPage />;
       case 'settings':
         return <Settings />;
       default:

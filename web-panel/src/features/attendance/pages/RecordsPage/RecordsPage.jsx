@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import './Records.css';
+import { StatsCard } from '../../../../shared/components/ui/StatsCard';
+import { Table } from '../../../../shared/components/ui/Table';
+import { Badge } from '../../../../shared/components/ui/Badge';
+import './RecordsPage.css';
 
-function Records() {
+export const RecordsPage = () => {
   const [dateRange, setDateRange] = useState('This Month');
   const [course, setCourse] = useState('All Courses');
   const [attendanceMethod, setAttendanceMethod] = useState('All Methods');
@@ -56,8 +59,52 @@ function Records() {
     alert('Schedule Report...');
   };
 
+  // Prepare course performance table
+  const courseTableColumns = [
+    { key: 'course', label: 'Course' },
+    { key: 'classes', label: 'Classes' },
+    { 
+      key: 'avgAttendance', 
+      label: 'Avg Attendance',
+      render: (value, row) => (
+        <div className="attendance-cell">
+          <div className="progress-bar">
+            <div 
+              className="progress-fill" 
+              style={{width: `${row.avgAttendance}%`}}
+            ></div>
+          </div>
+          <span className="attendance-value">{row.avgAttendance}%</span>
+        </div>
+      )
+    },
+    { 
+      key: 'trend', 
+      label: 'Trend',
+      render: (value) => (
+        <span className={`trend-icon ${value}`}>
+          {value === 'up' ? '↑' : '↓'}
+        </span>
+      )
+    },
+    {
+      key: 'methods',
+      label: 'Methods',
+      render: (value) => (
+        <div className="methods-badges">
+          <Badge variant="info" size="small" style={{ marginRight: '8px' }}>
+            face {value.face}%
+          </Badge>
+          <Badge variant="info" size="small">
+            QR {value.qr}%
+          </Badge>
+        </div>
+      )
+    }
+  ];
+
   return (
-    <div className="records-container">
+    <div className="records-page-container">
       {/* Header */}
       <div className="records-header">
         <div>
@@ -123,33 +170,36 @@ function Records() {
 
       {/* Stats Grid */}
       <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Total Classes</div>
-          <div className="stat-value">{stats.totalClasses}</div>
-          <div className="stat-change positive">
-            <span>↑</span> +8% from last month
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-label">Avg Attendance</div>
-          <div className="stat-value">{stats.avgAttendance}%</div>
-          <div className="stat-change positive">
-            <span>↑</span> +2% from last month
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-label">Auto Attendance</div>
-          <div className="stat-value">{stats.autoAttendance}%</div>
-          <div className="stat-footer">Face ID + QR</div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-label">Manual Reviews</div>
-          <div className="stat-value">{stats.manualReviews}</div>
-          <div className="stat-footer">This month</div>
-        </div>
+        <StatsCard
+          icon="📚"
+          title="Total Classes"
+          value={stats.totalClasses}
+          trend="up"
+          trendValue="+8% from last month"
+          color="blue"
+        />
+        <StatsCard
+          icon="📊"
+          title="Avg Attendance"
+          value={`${stats.avgAttendance}%`}
+          trend="up"
+          trendValue="+2% from last month"
+          color="green"
+        />
+        <StatsCard
+          icon="🤖"
+          title="Auto Attendance"
+          value={`${stats.autoAttendance}%`}
+          subtitle="Face ID + QR"
+          color="purple"
+        />
+        <StatsCard
+          icon="👤"
+          title="Manual Reviews"
+          value={stats.manualReviews}
+          subtitle="This month"
+          color="orange"
+        />
       </div>
 
       {/* Main Content Grid */}
@@ -157,49 +207,11 @@ function Records() {
         {/* Course Performance */}
         <div className="content-section">
           <h2 className="section-title">Course Performance</h2>
-          <div className="performance-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Course</th>
-                  <th>Classes</th>
-                  <th>Avg Attendance</th>
-                  <th>Trend</th>
-                  <th>Methods</th>
-                </tr>
-              </thead>
-              <tbody>
-                {coursePerformance.map((item, index) => (
-                  <tr key={index}>
-                    <td className="course-name">{item.course}</td>
-                    <td>{item.classes}</td>
-                    <td>
-                      <div className="attendance-cell">
-                        <div className="progress-bar">
-                          <div 
-                            className="progress-fill" 
-                            style={{width: `${item.avgAttendance}%`}}
-                          ></div>
-                        </div>
-                        <span className="attendance-value">{item.avgAttendance}%</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`trend-icon ${item.trend}`}>
-                        {item.trend === 'up' ? '↑' : '↓'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="methods-badges">
-                        <span className="method-badge">face {item.methods.face}%</span>
-                        <span className="method-badge">QR {item.methods.qr}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table 
+            columns={courseTableColumns} 
+            data={coursePerformance}
+            emptyMessage="No course data available"
+          />
         </div>
 
         {/* Common Failure Reasons */}
@@ -248,6 +260,5 @@ function Records() {
       </div>
     </div>
   );
-}
+};
 
-export default Records;

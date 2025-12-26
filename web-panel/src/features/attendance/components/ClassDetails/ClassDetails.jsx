@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { useClassDetails } from '../features/attendance/hooks/useClassDetails';
-import { Badge } from '../shared/components/ui/Badge';
+import { useClassDetails } from '../../hooks/useClassDetails';
+import { Badge } from '../../../../shared/components/ui/Badge';
 import './ClassDetails.css';
 
-function ClassDetails({ classData, onBack }) {
+export const ClassDetails = ({ classData, onBack }) => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showManualAttendance, setShowManualAttendance] = useState(false);
   const [cancelReason, setCancelReason] = useState('Instructor unavailable');
@@ -335,7 +335,5 @@ function ClassDetails({ classData, onBack }) {
       )}
     </div>
   );
-}
-
-export default ClassDetails;
+};
 

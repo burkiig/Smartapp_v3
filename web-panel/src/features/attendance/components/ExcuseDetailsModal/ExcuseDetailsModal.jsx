@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './ExcuseDetailsModal.css';
 
-function ExcuseDetailsModal({ excuse, onClose, onApprove, onReject }) {
+export const ExcuseDetailsModal = ({ excuse, onClose, onApprove, onReject }) => {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -285,7 +285,5 @@ function ExcuseDetailsModal({ excuse, onClose, onApprove, onReject }) {
       </div>
     </div>
   );
-}
-
-export default ExcuseDetailsModal;
+};
 

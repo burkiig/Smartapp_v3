@@ -1,6 +1,7 @@
-.records-container {
+.records-page-container {
   max-width: 1400px;
   margin: 0 auto;
+  padding: 24px;
 }
 
 /* Header */
@@ -118,50 +119,6 @@
   margin-bottom: 32px;
 }
 
-.stat-card {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  border: 1px solid #e5e5e7;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: #6B7280;
-  margin-bottom: 12px;
-  display: block;
-}
-
-.stat-value {
-  font-size: 36px;
-  font-weight: 700;
-  color: #1d1d1f;
-  margin-bottom: 8px;
-}
-
-.stat-change {
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.stat-change.positive {
-  color: #10B981;
-}
-
-.stat-change.negative {
-  color: #EF4444;
-}
-
-.stat-footer {
-  font-size: 13px;
-  color: #6B7280;
-  margin-top: 8px;
-}
-
 /* Content Grid */
 .content-grid {
   display: grid;
@@ -186,40 +143,6 @@
 }
 
 /* Performance Table */
-.performance-table {
-  overflow-x: auto;
-}
-
-.performance-table table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.performance-table th {
-  text-align: left;
-  padding: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #6B7280;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 2px solid #e5e5e7;
-}
-
-.performance-table td {
-  padding: 16px 12px;
-  border-bottom: 1px solid #e5e5e7;
-}
-
-.performance-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.course-name {
-  font-weight: 600;
-  color: #1d1d1f;
-}
-
 .attendance-cell {
   display: flex;
   align-items: center;
@@ -266,15 +189,6 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-.method-badge {
-  padding: 4px 8px;
-  background: #EEF2FF;
-  color: #0071e3;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
 }
 
 /* Failure Reasons */
@@ -405,3 +319,4 @@
     font-size: 24px;
   }
 }
+

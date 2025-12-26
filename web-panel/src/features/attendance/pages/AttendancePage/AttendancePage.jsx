@@ -3,7 +3,7 @@ import { useAttendance } from '../../hooks/useAttendance';
 import { useExcuses } from '../../hooks/useExcuses';
 import { FlaggedAttendanceList } from '../../components/FlaggedAttendanceList';
 import { Badge } from '../../../../shared/components/ui/Badge';
-import ExcuseDetailsModal from '../../../../components/ExcuseDetailsModal';
+import { ExcuseDetailsModal } from '../../components/ExcuseDetailsModal';
 import './AttendancePage.css';
 
 export const AttendancePage = () => {
