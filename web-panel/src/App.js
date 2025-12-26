@@ -2,7 +2,7 @@ import React from 'react';
 import './App.css';
 import { LoginPage } from './pages/LoginPage';
 import { useAuth } from './features/auth/hooks';
-import InstructorDashboard from './components/InstructorDashboard';
+import { InstructorDashboardPage } from './features/dashboard/pages';
 import StudentDashboard from './components/StudentDashboard';
 import AdminDashboard from './components/AdminDashboard';
 
@@ -25,7 +25,7 @@ function App() {
   // Render appropriate dashboard based on user role
   switch (user.role) {
     case 'instructor':
-      return <InstructorDashboard user={user} onLogout={logout} />;
+      return <InstructorDashboardPage user={user} onLogout={logout} />;
     case 'student':
       return (
         <div className="App">
