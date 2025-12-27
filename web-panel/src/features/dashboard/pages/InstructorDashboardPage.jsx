@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sidebar } from '../../../shared/components/layout/Sidebar';
-import Dashboard from '../../../components/Dashboard';
-import Register from '../../../components/Register';
+import DashboardView from '../components/DashboardView';
+import StudentRegistration from '../../students/components/StudentRegistration';
 import { AttendancePage } from '../../attendance/pages';
 import { StudentsPage } from '../../attendance/pages/StudentsPage';
 import { RecordsPage } from '../../attendance/pages/RecordsPage';
@@ -25,11 +25,11 @@ export const InstructorDashboardPage = ({ user, onLogout }) => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard />;
+        return <DashboardView />;
       case 'schedule':
         return <WeeklySchedulePage />;
       case 'register':
-        return <Register />;
+        return <StudentRegistration />;
       case 'attendance':
         return <AttendancePage />;
       case 'students':
@@ -39,7 +39,7 @@ export const InstructorDashboardPage = ({ user, onLogout }) => {
       case 'settings':
         return <SettingsPage />;
       default:
-        return <Dashboard />;
+        return <DashboardView />;
     }
   };
 
