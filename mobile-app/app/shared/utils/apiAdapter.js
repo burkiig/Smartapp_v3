@@ -1,13 +1,13 @@
 import NetInfo from '@react-native-community/netinfo';
-import { config } from '../config/env';
+import apiClient from '../../../src/api/apiClient';
 
 /**
  * API Adapter for React Native
- * Converts axios-style calls to fetch API with network detection
+ * Wraps apiClient (Axios) with network detection and error handling
  */
 class APIAdapter {
-    constructor(baseURL) {
-        this.baseURL = baseURL;
+    constructor() {
+        this.client = apiClient;
     }
 
     /**
@@ -25,62 +25,44 @@ class APIAdapter {
     }
 
     /**
-     * Make HTTP request
+     * Make HTTP request with network check
      */
-    async request(endpoint, options = {}) {
+    async request(method, endpoint, data = null, options = {}) {
         // Network check
         await this.checkNetwork();
 
-        const url = `${this.baseURL}${endpoint}`;
-        const fetchConfig = {
-            method: options.method || 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers
-            }
-        };
-
-        if (options.data) {
-            fetchConfig.body = JSON.stringify(options.data);
-        }
-
         try {
-            if (config.ENABLE_DEVTOOLS) {
-                console.log(`[API] ${fetchConfig.method} ${url}`);
+            let response;
+            
+            switch (method.toUpperCase()) {
+                case 'GET':
+                    response = await this.client.get(endpoint, options);
+                    break;
+                case 'POST':
+                    response = await this.client.post(endpoint, data, options);
+                    break;
+                case 'PUT':
+                    response = await this.client.put(endpoint, data, options);
+                    break;
+                case 'DELETE':
+                    response = await this.client.delete(endpoint, options);
+                    break;
+                case 'PATCH':
+                    response = await this.client.patch(endpoint, data, options);
+                    break;
+                default:
+                    throw new Error(`Unsupported method: ${method}`);
             }
 
-            const response = await fetch(url, fetchConfig);
-
-            if (!response.ok) {
-                let error;
-                try {
-                    error = await response.json();
-                } catch {
-                    error = { message: 'Request failed' };
-                }
-
-                throw {
-                    message: error.message || error.error || 'API Error',
-                    status: response.status,
-                    data: error
-                };
-            }
-
-            const data = await response.json();
-
-            if (config.ENABLE_DEVTOOLS) {
-                console.log(`[API] Response:`, data);
-            }
-
-            return data;
+            return response.data;
         } catch (error) {
             if (error.isNetworkError) throw error;
 
-            console.error('[API] Error:', error);
+            console.error('[APIAdapter] Error:', error);
 
             throw {
-                message: error.message || 'Request failed',
-                status: error.status || 500,
+                message: error.response?.data?.message || error.message || 'Request failed',
+                status: error.response?.status || 500,
                 isNetworkError: false,
                 originalError: error
             };
@@ -88,28 +70,28 @@ class APIAdapter {
     }
 
     /**
-     * Axios-like methods for compatibility
+     * Convenience methods
      */
     get(endpoint, options = {}) {
-        return this.request(endpoint, { ...options, method: 'GET' });
+        return this.request('GET', endpoint, null, options);
     }
 
     post(endpoint, data, options = {}) {
-        return this.request(endpoint, { ...options, method: 'POST', data });
+        return this.request('POST', endpoint, data, options);
     }
 
     put(endpoint, data, options = {}) {
-        return this.request(endpoint, { ...options, method: 'PUT', data });
+        return this.request('PUT', endpoint, data, options);
     }
 
     delete(endpoint, options = {}) {
-        return this.request(endpoint, { ...options, method: 'DELETE' });
+        return this.request('DELETE', endpoint, null, options);
     }
 
     patch(endpoint, data, options = {}) {
-        return this.request(endpoint, { ...options, method: 'PATCH', data });
+        return this.request('PATCH', endpoint, data, options);
     }
 }
 
 // Export singleton instance
-export default new APIAdapter(config.API_URL);
+export default new APIAdapter();

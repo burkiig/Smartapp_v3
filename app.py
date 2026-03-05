@@ -1,32 +1,97 @@
 from flask import Flask, render_template, request, jsonify, Response, session
 from flask_cors import CORS
-import cv2
-import face_recognition
-import numpy as np
+from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import base64
 from werkzeug.security import generate_password_hash, check_password_hash
-import secrets
+from dotenv import load_dotenv
 
-# Import data layer and error handling
-from database import get_database_adapter
-from shared.errors import APIError, ValidationError, NotFoundError, DuplicateError
-from shared.logger import setup_logger, get_logger
-from config import Config
+# Optional imports for face recognition (can run without these for testing)
+try:
+    import cv2
+    import face_recognition
+    import numpy as np
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    print("WARNING: OpenCV and face_recognition not installed. Face recognition features will be disabled.")
+    print("Install with: pip install opencv-python face-recognition numpy")
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Import data layer and error handling (optional for mock mode)
+try:
+    from database import get_database_adapter
+    from shared.errors import APIError, ValidationError, NotFoundError, DuplicateError
+    from shared.logger import setup_logger, get_logger
+    from config import Config
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    print("WARNING: Database modules not available. Running in mock mode.")
+    # Mock classes for when database is not available
+    class APIError(Exception):
+        def __init__(self, message, status_code=500):
+            self.message = message
+            self.status_code = status_code
+        def to_dict(self):
+            return {'error': self.message, 'status': self.status_code}
+    
+    class ValidationError(APIError):
+        def __init__(self, message):
+            super().__init__(message, 400)
+    
+    class NotFoundError(APIError):
+        def __init__(self, message):
+            super().__init__(message, 404)
+    
+    class DuplicateError(APIError):
+        def __init__(self, message):
+            super().__init__(message, 409)
+    
+    class MockLogger:
+        def info(self, msg): print(f"[INFO] {msg}")
+        def warning(self, msg): print(f"[WARNING] {msg}")
+        def error(self, msg, **kwargs): print(f"[ERROR] {msg}")
+    
+    def setup_logger(*args, **kwargs):
+        return MockLogger()
+    
+    def get_logger(*args, **kwargs):
+        return MockLogger()
+    
+    class Config:
+        DEBUG = True
+        HOST = '0.0.0.0'
+        PORT = 5000
+        LOG_LEVEL = 'INFO'
+        LOG_FILE = None
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)
-CORS(app, supports_credentials=True)
+app.secret_key = os.environ.get('SECRET_KEY') or os.environ.get('JWT_SECRET_KEY') or 'dev-secret-key-change-in-production'
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY') or app.secret_key
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+
+CORS(app, supports_credentials=True, origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(','))
+
+# Initialize JWT Manager
+jwt = JWTManager(app)
 
 # Setup logger
-log_file = Config.LOG_FILE if Config.LOG_FILE else None
-logger = setup_logger('smart_attendance', log_file=log_file, level=Config.LOG_LEVEL)
+log_file = Config.LOG_FILE if hasattr(Config, 'LOG_FILE') and Config.LOG_FILE else None
+logger = setup_logger('smart_attendance', log_file=log_file, level=getattr(Config, 'LOG_LEVEL', 'INFO'))
 
-# Initialize database adapter
-db = get_database_adapter()
-logger.info(f"Database adapter initialized: {db.__class__.__name__}")
+# Initialize database adapter (if available)
+if DATABASE_AVAILABLE:
+    db = get_database_adapter()
+    logger.info(f"Database adapter initialized: {db.__class__.__name__}")
+else:
+    db = None
+    logger.info("Running in MOCK MODE - no database connection")
 
 # Dizinleri oluştur
 os.makedirs('static/faces', exist_ok=True)
@@ -120,6 +185,16 @@ def health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
+@app.route('/api/health', methods=['GET'])
+def api_health_check():
+    """API health check endpoint"""
+    return jsonify({
+        'status': 'ok',
+        'message': 'API is running',
+        'version': '2.0.0',
+        'timestamp': datetime.now().isoformat()
+    })
+
 # ==================== ERROR HANDLERS ====================
 
 @app.errorhandler(APIError)
@@ -137,11 +212,79 @@ def handle_generic_error(error):
         'status': 500
     }), 500
 
+# ==================== MOCK USER DATA (Temporary - Replace with DB later) ====================
+
+# MOCK USERS - Geçici hardcoded kullanıcılar
+# TODO: DB hazır olunca get_user_from_db() fonksiyonunu gerçek DB sorgusu ile değiştir
+MOCK_USERS = {
+    # Web Panel Users (existing users from web-panel)
+    'instructor1': {
+        'username': 'instructor1',
+        'password': generate_password_hash('pass123'),
+        'role': 'instructor',
+        'name': 'Dr. Instructor One',
+        'department': 'Computer Science',
+        'email': 'instructor1@university.edu'
+    },
+    'student1': {
+        'username': 'student1',
+        'password': generate_password_hash('pass123'),
+        'role': 'student',
+        'name': 'Student One',
+        'student_id': 'STU001',
+        'email': 'student1@university.edu'
+    },
+    # Admin User
+    'admin': {
+        'username': 'admin',
+        'password': generate_password_hash('admin123'),
+        'role': 'admin',
+        'name': 'System Administrator',
+        'email': 'admin@demo.com'
+    },
+    # Mobile Demo Users
+    'instructor_demo': {
+        'username': 'instructor_demo',
+        'password': generate_password_hash('demo123'),
+        'role': 'instructor',
+        'name': 'Dr. Demo Instructor',
+        'email': 'instructor@demo.com',
+        'department': 'Computer Science'
+    },
+    'student_demo': {
+        'username': 'student_demo',
+        'password': generate_password_hash('demo123'),
+        'role': 'student',
+        'name': 'Demo Student',
+        'email': 'student@demo.com',
+        'student_id': 'DEMO001'
+    }
+}
+
+def get_user_from_db(username):
+    """
+    Get user from database
+    
+    TEMPORARY: Returns mock user data
+    TODO: Replace with actual database query when DB is ready
+    
+    Example DB implementation:
+        return db.get_user(username)
+    
+    Args:
+        username (str): Username to lookup
+        
+    Returns:
+        dict: User data or None if not found
+    """
+    # MOCK IMPLEMENTATION - Replace this entire function body with DB query
+    return MOCK_USERS.get(username)
+
 # ==================== AUTHENTICATION ====================
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    """Kullanıcı girişi"""
+    """Kullanıcı girişi - JWT token ile"""
     try:
         data = request.json
         username = data.get('username')
@@ -150,9 +293,14 @@ def login():
         if not username or not password:
             raise ValidationError('Kullanıcı adı ve şifre gerekli')
         
-        user = db.get_user(username)
+        # Get user from database (currently mock data)
+        user = get_user_from_db(username)
         
         if user and check_password_hash(user['password'], password):
+            # Create JWT tokens
+            access_token = create_access_token(identity=username)
+            refresh_token = create_refresh_token(identity=username)
+            
             # Şifreyi response'dan çıkar
             user_data = {k: v for k, v in user.items() if k != 'password'}
             
@@ -160,7 +308,9 @@ def login():
             return jsonify({
                 'success': True,
                 'message': 'Giriş başarılı',
-                'user': user_data
+                'user': user_data,
+                'access_token': access_token,
+                'refresh_token': refresh_token
             })
         
         logger.warning(f"Failed login attempt: {username}")
@@ -173,19 +323,48 @@ def login():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/logout', methods=['POST'])
+@jwt_required()
 def logout():
     """Kullanıcı çıkışı"""
+    current_user = get_jwt_identity()
+    logger.info(f"User logged out: {current_user}")
     return jsonify({'success': True, 'message': 'Çıkış başarılı'})
+
+@app.route('/api/auth/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    """Refresh access token"""
+    try:
+        identity = get_jwt_identity()
+        access_token = create_access_token(identity=identity)
+        
+        logger.info(f"Token refreshed for user: {identity}")
+        return jsonify({
+            'success': True,
+            'access_token': access_token
+        })
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 401
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
     """Tüm kullanıcıları getir (sadece admin)"""
-    users_list = []
-    for username, user in users_db.items():
-        user_data = {k: v for k, v in user.items() if k != 'password'}
-        users_list.append(user_data)
-    
-    return jsonify({'success': True, 'users': users_list})
+    try:
+        if DATABASE_AVAILABLE and db:
+            users = db.get_users()
+            users_list = [{k: v for k, v in user.items() if k != 'password'} for user in users]
+            return jsonify({'success': True, 'users': users_list})
+        else:
+            # Mock users
+            mock_users = [
+                {k: v for k, v in user.items() if k != 'password'} 
+                for user in MOCK_USERS.values()
+            ]
+            return jsonify({'success': True, 'users': mock_users})
+    except Exception as e:
+        logger.error(f"Get users error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/users', methods=['POST'])
 def add_user():
@@ -396,8 +575,9 @@ def mark_attendance():
             return jsonify({'success': False, 'message': 'Kayıtlı öğrenci bulunamadı'}), 400
         
         # Yüzleri karşılaştır
+        tolerance = float(os.environ.get('FACE_RECOGNITION_TOLERANCE', '0.6'))
         for face_encoding in face_encodings:
-            matches = face_recognition.compare_faces(known_faces, face_encoding, tolerance=0.6)
+            matches = face_recognition.compare_faces(known_faces, face_encoding, tolerance=tolerance)
             face_distances = face_recognition.face_distance(known_faces, face_encoding)
             
             if True in matches:
@@ -430,51 +610,75 @@ def mark_attendance():
 @app.route('/api/students', methods=['GET'])
 def get_students():
     """Tüm öğrencileri getir"""
-    return jsonify({'success': True, 'students': list(students_db.values())})
+    try:
+        if DATABASE_AVAILABLE and db:
+            students = db.get_students()
+            return jsonify({'success': True, 'students': students})
+        else:
+            # Mock data
+            return jsonify({'success': True, 'students': []})
+    except Exception as e:
+        logger.error(f"Get students error: {e}")
+        return jsonify({'success': False, 'message': str(e), 'students': []}), 500
 
 @app.route('/api/attendance/records', methods=['GET'])
 def get_attendance_records():
     """Yoklama kayıtlarını getir"""
-    date = request.args.get('date')
-    
-    if date:
-        filtered_records = [
-            record for record in attendance_records
-            if record['timestamp'].startswith(date)
-        ]
-        return jsonify({'success': True, 'records': filtered_records})
-    
-    return jsonify({'success': True, 'records': attendance_records})
+    try:
+        date = request.args.get('date')
+        
+        if DATABASE_AVAILABLE and db:
+            # DB'den al
+            records = db.get_attendance_records()
+            if date and records:
+                records = [r for r in records if r.get('timestamp', '').startswith(date)]
+            return jsonify({'success': True, 'records': records or []})
+        else:
+            # Mock data
+            return jsonify({'success': True, 'records': []})
+    except Exception as e:
+        logger.error(f"Get attendance records error: {e}")
+        return jsonify({'success': False, 'message': str(e), 'records': []}), 500
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
     """Dashboard istatistiklerini getir"""
     try:
         # Toplam öğrenci sayısı
-        total_students = len(students_db)
+        if DATABASE_AVAILABLE and db:
+            students = db.get_students()
+            total_students = len(students) if students else 0
+        else:
+            total_students = 0
         
         # Toplam ders sayısı (benzersiz tarihler)
+        if DATABASE_AVAILABLE and db:
+            records = db.get_attendance_records() or []
+        else:
+            records = []
+            
         unique_dates = set()
-        for record in attendance_records:
-            date = record['timestamp'].split('T')[0]
-            unique_dates.add(date)
+        for record in records:
+            date = record.get('timestamp', '').split('T')[0]
+            if date:
+                unique_dates.add(date)
         total_classes = len(unique_dates)
         
         # Ortalama yoklama oranı
         if total_classes > 0 and total_students > 0:
-            avg_attendance = round((len(attendance_records) / (total_classes * total_students)) * 100)
+            avg_attendance = round((len(records) / (total_classes * total_students)) * 100)
         else:
             avg_attendance = 0
         
         # Bugünkü yoklama
         today = datetime.now().strftime('%Y-%m-%d')
-        today_records = [r for r in attendance_records if r['timestamp'].startswith(today)]
+        today_records = [r for r in records if r.get('timestamp', '').startswith(today)]
         present_today = len(today_records)
         
         # Son ayın istatistikleri
         from datetime import timedelta
         last_month = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-        last_month_records = [r for r in attendance_records if r['timestamp'] >= last_month]
+        last_month_records = [r for r in records if r.get('timestamp', '') >= last_month]
         
         stats = {
             'total_students': total_students,
@@ -514,9 +718,14 @@ def get_recent_activity():
     """Son aktiviteleri getir"""
     try:
         # Son 10 yoklama kaydını al
+        if DATABASE_AVAILABLE and db:
+            all_records = db.get_attendance_records() or []
+        else:
+            all_records = []
+            
         recent_records = sorted(
-            attendance_records, 
-            key=lambda x: x['timestamp'], 
+            all_records, 
+            key=lambda x: x.get('timestamp', ''), 
             reverse=True
         )[:10]
         
@@ -537,20 +746,22 @@ def get_recent_activity():
 @app.route('/api/students/<student_id>', methods=['DELETE'])
 def delete_student(student_id):
     """Öğrenci sil"""
-    if student_id in students_db:
-        # Görüntü dosyasını sil
-        image_file = students_db[student_id].get('image')
-        if image_file:
-            filepath = os.path.join('static/faces', image_file)
-            if os.path.exists(filepath):
-                os.remove(filepath)
-        
-        del students_db[student_id]
-        save_students_db()
-        
-        return jsonify({'success': True, 'message': 'Öğrenci silindi'})
-    
-    return jsonify({'success': False, 'message': 'Öğrenci bulunamadı'}), 404
+    try:
+        if DATABASE_AVAILABLE and db:
+            # Görüntü dosyasını sil
+            student = db.get_student(student_id)
+            if student and student.get('image'):
+                filepath = os.path.join('static/faces', student['image'])
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            
+            db.delete_student(student_id)
+            return jsonify({'success': True, 'message': 'Öğrenci silindi'})
+        else:
+            return jsonify({'success': False, 'message': 'Database not available'}), 503
+    except Exception as e:
+        logger.error(f"Delete student error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== CLASS MANAGEMENT ====================
 
@@ -706,5 +917,12 @@ init_default_users()
 if __name__ == '__main__':
     logger.info(f"Starting Smart Attendance System v2.0.0")
     logger.info(f"Database mode: {db.__class__.__name__}")
-    app.run(debug=Config.DEBUG, host=Config.HOST, port=Config.PORT)
+    
+    # Get configuration from environment variables
+    debug_mode = os.environ.get('DEBUG', 'true').lower() == 'true'
+    host = os.environ.get('HOST', '0.0.0.0')
+    port = int(os.environ.get('PORT', '5000'))
+    
+    logger.info(f"Server starting on {host}:{port} (debug={debug_mode})")
+    app.run(debug=debug_mode, host=host, port=port)
 

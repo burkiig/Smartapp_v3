@@ -10,11 +10,14 @@ import {
   ScrollView,
   Alert,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUser } from './context/UserContext';
+import api from './shared/utils/apiAdapter';
+import { saveTokens } from '../src/utils/tokenStorage';
 
 // Smart Attendance Logo Component with Premium Animations
 const SmartAttendanceLogo = () => {
@@ -103,6 +106,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Clear fields when user type changes
   const handleUserTypeChange = (type) => {
@@ -111,7 +115,7 @@ export default function LoginScreen() {
     setPassword('');   // Clear password
   };
 
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     // Validate empty fields
     if (!email.trim() && !password.trim()) {
       Alert.alert(
@@ -140,14 +144,42 @@ export default function LoginScreen() {
       return;
     }
 
-    // Login
-    const name = userType === 'instructor' ? 'Dr. Robert Chen' : 'John Doe';
-    login(userType, email, name);
-    
-    if (userType === 'instructor') {
-      router.push('/(tabs)/dashboard');
-    } else {
-      router.push('/(tabs)/home');
+    setLoading(true);
+    try {
+      // Call Flask backend login API
+      const response = await api.post('/login', {
+        username: email,
+        password: password,
+      });
+
+      if (response.success) {
+        const { user, access_token, refresh_token } = response;
+        
+        // Save JWT tokens to secure storage
+        if (access_token) {
+          await saveTokens(access_token, refresh_token || access_token);
+        }
+        
+        // Update user context
+        login(user.role, user.email, user.name, user.username);
+        
+        // Navigate to home based on role
+        if (user.role === 'instructor') {
+          router.push('/(tabs)/dashboard');
+        } else {
+          router.push('/(tabs)/home');
+        }
+      } else {
+        Alert.alert('Login Failed', response.message || 'Invalid credentials');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      Alert.alert(
+        'Login Error',
+        error.message || 'Could not connect to server. Please check your connection.'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -277,11 +309,16 @@ export default function LoginScreen() {
 
             {/* Sign In Button */}
             <TouchableOpacity
-              style={styles.signInButton}
+              style={[styles.signInButton, loading && styles.signInButtonDisabled]}
               onPress={handleSignIn}
               activeOpacity={0.8}
+              disabled={loading}
             >
-              <Text style={styles.signInButtonText}>Sign In</Text>
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.signInButtonText}>Sign In</Text>
+              )}
             </TouchableOpacity>
 
             {/* Sign Up Link */}
@@ -446,6 +483,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
     marginBottom: 20,
+  },
+  signInButtonDisabled: {
+    backgroundColor: '#9CA3AF',
+    shadowOpacity: 0.1,
   },
   signInButtonText: {
     fontSize: 16,
