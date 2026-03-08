@@ -9,22 +9,26 @@ echo   AKILLI YOKLAMA SISTEMI
 echo   Yuz Tanima ile Otomatik Yoklama
 echo ========================================
 echo.
-echo [1] Backend Baslat (Sunucu)
-echo [2] Web Panel Baslat (Arayuz)
-echo [3] Her Ikisini Baslat
-echo [4] Sistem Kontrolu
-echo [5] Kurulum Rehberi
-echo [6] Cikis
+echo [1] Sadece Backend Baslat (port 5000)
+echo [2] Web Panel - Gelistirici Modu (port 3000, hot-reload)
+echo [3] Web Panel Build + Backend Baslat (tek port 5000)
+echo [4] ngrok Baslat (Takim / Mobil Erisim)
+echo [5] Sistem Kontrolu
+echo [6] Kurulum Rehberi
+echo [7] Cikis
 echo.
 echo ========================================
-set /p choice="Seciminiz (1-6): "
+echo   Tavsiye: Takim erişimi için [4] seçin
+echo ========================================
+set /p choice="Seciminiz (1-7): "
 
 if "%choice%"=="1" goto backend
-if "%choice%"=="2" goto webpanel
-if "%choice%"=="3" goto both
-if "%choice%"=="4" goto test
-if "%choice%"=="5" goto help
-if "%choice%"=="6" goto exit
+if "%choice%"=="2" goto webpanel_dev
+if "%choice%"=="3" goto build_and_run
+if "%choice%"=="4" goto ngrok
+if "%choice%"=="5" goto test
+if "%choice%"=="6" goto help
+if "%choice%"=="7" goto exit
 
 echo Gecersiz secim!
 timeout /t 2 >nul
@@ -32,32 +36,88 @@ goto menu
 
 :backend
 cls
-echo Backend baslatiliyor...
+echo Backend baslatiliyor (port 5000)...
 start "Backend - Akilli Yoklama" cmd /k run_backend.bat
 timeout /t 2 >nul
 goto menu
 
-:webpanel
+:webpanel_dev
 cls
-echo Web Panel baslatiliyor...
-start "Web Panel - Akilli Yoklama" cmd /k run_web_panel.bat
+echo Web Panel gelistirici modu baslatiliyor (port 3000)...
+echo NOT: Backend da ayri terminalde calisyor olmali!
+start "Web Panel DEV - Akilli Yoklama" cmd /k run_web_panel.bat
 timeout /t 2 >nul
 goto menu
 
-:both
+:build_and_run
 cls
-echo Her iki servis baslatiliyor...
+echo ============================================
+echo   Web Panel Build + Backend (Tek Port 5000)
+echo ============================================
 echo.
-echo 1. Backend baslatiliyor...
-start "Backend - Akilli Yoklama" cmd /k run_backend.bat
+echo 1. React web panel build ediliyor...
+echo    (Bu islem 1-2 dakika surebilir)
+echo.
+cd /d "%~dp0web-panel"
+call npm run build
+if errorlevel 1 (
+    echo.
+    echo HATA: npm build basarisiz!
+    echo web-panel klasorunde "npm install" calistirmayi deneyin.
+    echo.
+    pause
+    goto menu
+)
+cd /d "%~dp0"
+echo.
+echo 2. Backend baslatiliyor (Web Panel + API hep birlikte port 5000)...
+start "Backend+WebPanel - Akilli Yoklama" cmd /k run_backend.bat
 timeout /t 3 >nul
 echo.
-echo 2. Web Panel baslatiliyor...
-start "Web Panel - Akilli Yoklama" cmd /k run_web_panel.bat
+echo ============================================
+echo   Sistem hazir!
+echo   Adres: http://localhost:5000
+echo ============================================
 echo.
-echo Her iki servis baslatildi!
-echo Backend: http://localhost:5000
-echo Web Panel: http://localhost:3000
+pause
+goto menu
+
+:ngrok
+cls
+echo ============================================
+echo   ngrok - Takim ve Mobil Erisim
+echo ============================================
+echo.
+echo 1. React web panel build ediliyor...
+cd /d "%~dp0web-panel"
+call npm run build
+if errorlevel 1 (
+    echo HATA: npm build basarisiz! "npm install" calistirmayi deneyin.
+    pause
+    goto menu
+)
+cd /d "%~dp0"
+echo.
+echo 2. Backend baslatiliyor...
+start "Backend+WebPanel - Akilli Yoklama" cmd /k run_backend.bat
+timeout /t 4 >nul
+echo.
+echo 3. ngrok tunnel aciliyor (port 5000)...
+start "ngrok Tunnel" cmd /k "ngrok http 5000"
+timeout /t 3 >nul
+echo.
+echo ============================================
+echo   ngrok paneli: http://localhost:4040
+echo.
+echo   Web Panel + API ayni URL'de:
+echo   https://xxxx.ngrok-free.app
+echo.
+echo   Mobil app icin env.js guncelle:
+echo   API_URL: 'https://xxxx.ngrok-free.app'
+echo.
+echo   Takim arkadaşlari Web Panel'e de
+echo   ayni ngrok URL'sinden erisebilir!
+echo ============================================
 echo.
 pause
 goto menu

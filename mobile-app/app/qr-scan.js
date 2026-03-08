@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,198 +8,261 @@ import {
   Dimensions,
   Alert,
   Linking,
+  Animated,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Camera } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
+import { qrVerify } from './shared/services/api';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export default function QRScanScreen() {
   const router = useRouter();
-  const [hasPermission, setHasPermission] = useState(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [camera, setCamera] = useState(null);
+  const {
+    session_id,
+    location_bypassed,
+    location_distance,
+    face_simulated,
+    face_confidence,
+  } = useLocalSearchParams();
+
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanState, setScanState] = useState('idle'); // idle | scanning | verifying | success | error
+  const [errorMessage, setErrorMessage] = useState('');
+  const [scanned, setScanned] = useState(false);
+  const [scanLineAnim] = useState(new Animated.Value(0));
+
+  // Scan line animation
+  useEffect(() => {
+    if (scanState === 'scanning') {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(scanLineAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+          Animated.timing(scanLineAnim, { toValue: 0, duration: 1800, useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [scanState]);
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
-    })();
-  }, []);
+    if (permission?.granted) {
+      setScanState('scanning');
+    }
+  }, [permission]);
 
-  const handleStartScanning = () => {
-    setIsScanning(true);
-    
-    // Simulate QR code scanning
-    setTimeout(() => {
-      setIsScanning(false);
-      Alert.alert(
-        'Success!',
-        'Attendance marked successfully',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
-      );
-    }, 2000);
+  const handleBarCodeScanned = async ({ data: qrCode }) => {
+    if (scanned) return; // Aynı QR'ı birden fazla işleme
+    setScanned(true);
+    setScanState('verifying');
+
+    // Önceki adımlardan gelen doğrulama meta verisi
+    const verificationMeta = {
+      location_bypassed: location_bypassed === 'true',
+      face_simulated: face_simulated !== 'false', // varsayılan: simüle (gerçek face rec henüz yok)
+      location_distance: location_distance ? parseFloat(location_distance) : null,
+      face_confidence: face_confidence ? parseFloat(face_confidence) : null,
+    };
+
+    try {
+      const result = await qrVerify.verify(session_id, qrCode, verificationMeta);
+
+      if (result.success) {
+        setScanState('success');
+
+        const isFlagged = result.is_flagged;
+        const flagMsg = isFlagged
+          ? '\n\n⚠️ Yoklamanız incelemeye alındı. Hocaya bildirim gönderildi.'
+          : '';
+
+        setTimeout(() => {
+          Alert.alert(
+            'Yoklama Tamamlandı! ✅',
+            `GPS → Yüz Tanıma → QR Kod\nÜç adım başarıyla tamamlandı.${flagMsg}`,
+            [{ text: 'Tamam', onPress: () => router.replace('/(tabs)/home') }]
+          );
+        }, 800);
+      } else {
+        setScanState('error');
+        setErrorMessage(result.message || 'QR kod geçersiz');
+      }
+    } catch (err) {
+      setScanState('error');
+      setErrorMessage(err?.message || 'Sunucuya bağlanılamadı');
+    }
   };
 
-  if (hasPermission === null) {
+  const handleRetry = () => {
+    setScanned(false);
+    setErrorMessage('');
+    setScanState('scanning');
+  };
+
+  // ─── Permission states ───────────────────────────────────────────────────
+
+  if (!permission) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.permissionContainer}>
+        <View style={styles.centerBox}>
           <Ionicons name="camera-outline" size={64} color="#3B82F6" />
-          <Text style={styles.permissionTitle}>Requesting Permission...</Text>
-          <Text style={styles.permissionText}>
-            Please wait while we request camera access
-          </Text>
+          <Text style={styles.permTitle}>İzin İsteniyor...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (hasPermission === false) {
+  if (!permission.granted) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.permissionContainer}>
-          <Ionicons name="close-circle-outline" size={64} color="#EF4444" />
-          <Text style={styles.permissionTitle}>Camera Permission Required</Text>
-          <Text style={styles.permissionText}>
-            QR Code scanning requires camera access. Please enable camera permission in your device settings to mark attendance.
-          </Text>
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={() => Linking.openSettings()}
-          >
-            <Ionicons name="settings-outline" size={20} color="#fff" />
-            <Text style={styles.settingsButtonText}>Open Settings</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.backButtonAlt}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.backButtonAltText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
+        <LinearGradient colors={['#3B82F6', '#06B6D4']} style={styles.gradient}>
+          <View style={styles.centerBox}>
+            <Ionicons name="close-circle-outline" size={72} color="#fff" />
+            <Text style={styles.permTitle}>Kamera İzni Gerekli</Text>
+            <Text style={styles.permSubtitle}>
+              QR kod okumak için kamera iznine ihtiyaç var.
+            </Text>
+            {permission.canAskAgain ? (
+              <TouchableOpacity style={styles.actionBtn} onPress={requestPermission}>
+                <Ionicons name="camera" size={20} color="#3B82F6" />
+                <Text style={styles.actionBtnText}>İzin Ver</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.actionBtn} onPress={Linking.openSettings}>
+                <Ionicons name="settings-outline" size={20} color="#3B82F6" />
+                <Text style={styles.actionBtnText}>Ayarları Aç</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
+              <Text style={styles.backLinkText}>Geri Dön</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
       </SafeAreaView>
     );
   }
+
+  // ─── Main scan UI ─────────────────────────────────────────────────────────
+
+  const frameSize = width * 0.72;
+  const scanLineTranslate = scanLineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, frameSize - 4],
+  });
+
+  const gradientColors =
+    scanState === 'success' ? ['#059669', '#10B981'] :
+    scanState === 'error'   ? ['#DC2626', '#EF4444'] :
+                              ['#3B82F6', '#06B6D4'];
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#3B82F6', '#06B6D4']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradient}
-      >
+      <LinearGradient colors={gradientColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradient}>
+
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>QR Code Scanner</Text>
-            <Text style={styles.headerSubtitle}>
-              Scan the QR code to mark attendance
-            </Text>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>QR Kod Okuyucu</Text>
+            <Text style={styles.headerSubtitle}>Adım 3 / 3 — QR Doğrulama</Text>
+          </View>
+          {/* Step indicator */}
+          <View style={styles.stepIndicator}>
+            <View style={styles.stepDot} />
+            <View style={styles.stepDot} />
+            <View style={[styles.stepDot, styles.stepDotActive]} />
           </View>
         </View>
 
-        {/* Scanner Area */}
-        <View style={styles.scannerContainer}>
-          <View style={styles.scannerFrame}>
-            <View style={styles.scanArea}>
-              {/* QR Code Frame */}
-              <View style={styles.qrFrame}>
-                <View style={[styles.corner, styles.cornerTopLeft]} />
-                <View style={[styles.corner, styles.cornerTopRight]} />
-                <View style={[styles.corner, styles.cornerBottomLeft]} />
-                <View style={[styles.corner, styles.cornerBottomRight]} />
-                
-                {/* QR Code Icon */}
-                <View style={styles.qrIconContainer}>
-                  <Ionicons name="qr-code" size={100} color="#3B82F6" />
-                  {isScanning && (
-                    <View style={styles.scanLine} />
-                  )}
+        {/* Camera / Status area */}
+        <View style={styles.cameraContainer}>
+          {(scanState === 'scanning' || scanState === 'verifying') ? (
+            <View style={[styles.cameraFrame, { width: frameSize, height: frameSize }]}>
+              <CameraView
+                style={StyleSheet.absoluteFill}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                onBarcodeScanned={scanState === 'scanning' ? handleBarCodeScanned : undefined}
+              />
+
+              {/* Corner decorations */}
+              <View style={[styles.corner, styles.cornerTopLeft]} />
+              <View style={[styles.corner, styles.cornerTopRight]} />
+              <View style={[styles.corner, styles.cornerBottomLeft]} />
+              <View style={[styles.corner, styles.cornerBottomRight]} />
+
+              {/* Animated scan line */}
+              {scanState === 'scanning' && (
+                <Animated.View
+                  style={[styles.scanLine, { transform: [{ translateY: scanLineTranslate }] }]}
+                />
+              )}
+
+              {/* Verifying overlay */}
+              {scanState === 'verifying' && (
+                <View style={styles.verifyingOverlay}>
+                  <Ionicons name="sync" size={40} color="#fff" />
+                  <Text style={styles.verifyingText}>Doğrulanıyor...</Text>
                 </View>
-              </View>
-              
-              {/* Camera Active Indicator */}
-              <View style={styles.cameraIndicator}>
-                <View style={styles.cameraIndicatorDot} />
-                <Text style={styles.cameraIndicatorText}>Camera Active</Text>
-              </View>
+              )}
             </View>
-          </View>
-          
-          <View style={styles.statusContainer}>
-            <Text style={styles.statusText}>
-              {isScanning ? 'Scanning...' : 'Ready to Scan'}
+          ) : scanState === 'success' ? (
+            <View style={styles.resultCircle}>
+              <Ionicons name="checkmark-circle" size={80} color="#fff" />
+            </View>
+          ) : (
+            <View style={styles.resultCircle}>
+              <Ionicons name="close-circle" size={80} color="#fff" />
+            </View>
+          )}
+
+          {/* Status text */}
+          <View style={styles.statusBox}>
+            <Text style={styles.statusTitle}>
+              {scanState === 'idle'       ? 'Hazır'                    :
+               scanState === 'scanning'  ? 'QR Kodu Çerçeveye Al'     :
+               scanState === 'verifying' ? 'Sunucuda Doğrulanıyor...'  :
+               scanState === 'success'   ? 'Yoklama Tamamlandı! ✅'    :
+                                           'Doğrulama Başarısız'}
             </Text>
-            <Text style={styles.statusSubtext}>
-              {isScanning
-                ? 'Hold steady until the scan completes'
-                : 'Position QR code within the frame'}
+            <Text style={styles.statusSubtitle}>
+              {scanState === 'scanning'  ? 'QR kodu otomatik olarak okunacak'      :
+               scanState === 'verifying' ? 'Lütfen bekleyin...'                    :
+               scanState === 'success'   ? 'Tüm adımlar başarıyla tamamlandı'      :
+               scanState === 'error'     ? errorMessage                            : ''}
             </Text>
           </View>
         </View>
 
-        {/* Scan Button */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={[styles.scanButton, isScanning && styles.scanButtonDisabled]}
-            onPress={handleStartScanning}
-            disabled={isScanning}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={isScanning ? ['#9CA3AF', '#6B7280'] : ['#3B82F6', '#06B6D4']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.scanButtonGradient}
-            >
-              <Text style={styles.scanButtonText}>
-                {isScanning ? 'Scanning...' : 'Start Scanning'}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
+        {/* Action buttons */}
+        {scanState === 'error' && (
+          <View style={styles.buttonArea}>
+            <TouchableOpacity style={styles.retryBtn} onPress={handleRetry}>
+              <Ionicons name="refresh" size={20} color="#3B82F6" />
+              <Text style={styles.retryBtnText}>Tekrar Dene</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-        {/* Instructions */}
-        <View style={styles.instructionsContainer}>
-          <Text style={styles.instructionsTitle}>How to Scan</Text>
-          <View style={styles.instructionItem}>
-            <View style={styles.instructionNumber}>
-              <Text style={styles.instructionNumberText}>1</Text>
-            </View>
-            <Text style={styles.instructionText}>
-              Allow camera access when prompted
-            </Text>
+        {/* Security chain footer */}
+        <View style={styles.footer}>
+          <View style={styles.chainStep}>
+            <Ionicons name="location" size={16} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.chainLabel}>GPS</Text>
           </View>
-          <View style={styles.instructionItem}>
-            <View style={styles.instructionNumber}>
-              <Text style={styles.instructionNumberText}>2</Text>
-            </View>
-            <Text style={styles.instructionText}>
-              Position the QR code within the blue frame
-            </Text>
+          <View style={styles.chainArrow} />
+          <View style={styles.chainStep}>
+            <Ionicons name="happy-outline" size={16} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.chainLabel}>Yüz</Text>
           </View>
-          <View style={styles.instructionItem}>
-            <View style={styles.instructionNumber}>
-              <Text style={styles.instructionNumberText}>3</Text>
-            </View>
-            <Text style={styles.instructionText}>
-              Hold steady until the scan completes
-            </Text>
+          <View style={styles.chainArrow} />
+          <View style={styles.chainStep}>
+            <Ionicons name="qr-code" size={16} color="#fff" />
+            <Text style={[styles.chainLabel, styles.chainLabelActive]}>QR Kod</Text>
           </View>
         </View>
       </LinearGradient>
@@ -208,260 +271,110 @@ export default function QRScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#3B82F6',
-  },
-  gradient: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  gradient:  { flex: 1 },
+
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 24,
+    paddingBottom: 16,
+    gap: 12,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  headerContent: {
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  scannerContainer: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  scannerFrame: {
-    width: width * 0.75,
-    height: width * 0.75,
+  headerCenter: { flex: 1 },
+  headerTitle:  { fontSize: 18, fontWeight: '700', color: '#fff' },
+  headerSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
+
+  stepIndicator: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  stepDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.35)' },
+  stepDotActive: { backgroundColor: '#fff', width: 20, borderRadius: 4 },
+
+  cameraContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24 },
+
+  cameraFrame: {
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#1F2937',
+    position: 'relative',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  scanArea: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    backgroundColor: '#fff',
-  },
-  qrFrame: {
-    width: width * 0.6,
-    height: width * 0.6,
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   corner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderColor: '#3B82F6',
+    position: 'absolute', width: 36, height: 36, borderColor: '#fff',
   },
-  cornerTopLeft: {
-    top: 0,
-    left: 0,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    borderTopLeftRadius: 8,
-  },
-  cornerTopRight: {
-    top: 0,
-    right: 0,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-    borderTopRightRadius: 8,
-  },
-  cornerBottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-    borderBottomLeftRadius: 8,
-  },
-  cornerBottomRight: {
-    bottom: 0,
-    right: 0,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-    borderBottomRightRadius: 8,
-  },
-  qrIconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
+  cornerTopLeft:     { top: 12,  left: 12,  borderTopWidth: 4, borderLeftWidth: 4,   borderTopLeftRadius: 8 },
+  cornerTopRight:    { top: 12,  right: 12, borderTopWidth: 4, borderRightWidth: 4,  borderTopRightRadius: 8 },
+  cornerBottomLeft:  { bottom: 12, left: 12,  borderBottomWidth: 4, borderLeftWidth: 4,  borderBottomLeftRadius: 8 },
+  cornerBottomRight: { bottom: 12, right: 12, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 8 },
+
   scanLine: {
     position: 'absolute',
-    width: '100%',
-    height: 2,
-    backgroundColor: '#3B82F6',
-    top: 0,
+    left: 0, right: 0, height: 2,
+    backgroundColor: '#60A5FA',
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
   },
-  cameraIndicator: {
-    position: 'absolute',
-    top: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(59, 130, 246, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+
+  verifyingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center', justifyContent: 'center', gap: 12,
   },
-  cameraIndicatorDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#10B981',
-    marginRight: 8,
-  },
-  cameraIndicatorText: {
-    fontSize: 12,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  statusContainer: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  statusText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  statusSubtext: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-  },
-  buttonContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-  },
-  scanButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
+  verifyingText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+
+  resultCircle: {
+    width: 140, height: 140, borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.2, shadowRadius: 12, elevation: 6,
   },
-  scanButtonDisabled: {
-    opacity: 0.6,
+
+  statusBox:     { alignItems: 'center', paddingHorizontal: 32 },
+  statusTitle:   { fontSize: 22, fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: 6 },
+  statusSubtitle:{ fontSize: 14, color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 20 },
+
+  buttonArea: { paddingHorizontal: 24, paddingBottom: 12 },
+  retryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#fff', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 32,
   },
-  scanButtonGradient: {
-    paddingVertical: 18,
-    alignItems: 'center',
+  retryBtnText: { fontSize: 15, fontWeight: '600', color: '#3B82F6' },
+
+  footer: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 20, paddingHorizontal: 32, gap: 4,
   },
-  scanButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+  chainStep:      { alignItems: 'center', gap: 4 },
+  chainLabel:     { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600' },
+  chainLabelActive: { color: '#fff' },
+  chainArrow:     { width: 24, height: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 6, marginBottom: 14 },
+
+  centerBox: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    padding: 32, gap: 16,
   },
-  instructionsContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 16,
-    padding: 20,
+  permTitle:    { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center' },
+  permSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 20 },
+  actionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#fff', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 28,
   },
-  instructionsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 16,
-  },
-  instructionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  instructionNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  instructionNumberText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  instructionText: {
-    flex: 1,
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.95)',
-  },
-  permissionContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#F9FAFB',
-  },
-  permissionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginTop: 20,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  permissionText: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  settingsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#3B82F6',
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  settingsButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  backButtonAlt: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  backButtonAltText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
+  actionBtnText: { fontSize: 15, fontWeight: '600', color: '#3B82F6' },
+  backLink:      { paddingVertical: 12 },
+  backLinkText:  { fontSize: 14, color: 'rgba(255,255,255,0.7)', fontWeight: '600' },
 });

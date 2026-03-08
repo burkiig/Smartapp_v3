@@ -1,66 +1,110 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { hasToken, clearTokens } from '../../src/utils/tokenStorage';
+import { login as apiLogin, logout as apiLogout, isAuthenticated } from '../shared/services/authService';
 
 const UserContext = createContext();
 
 export function UserProvider({ children }) {
-  const [userType, setUserType] = useState('student'); // 'student' or 'instructor'
+  const [userType, setUserType] = useState('student');   // 'student' | 'instructor' | 'admin'
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [userId, setUserId] = useState('');
+  const [userRole, setUserRole] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
 
-  // Check if user is already logged in on app start
   useEffect(() => {
     checkAuthStatus();
   }, []);
 
   const checkAuthStatus = async () => {
     try {
-      const tokenExists = await hasToken();
-      setIsLoggedIn(tokenExists);
-    } catch (error) {
-      console.error('Error checking auth status:', error);
+      const authenticated = await isAuthenticated();
+      setIsLoggedIn(authenticated);
+    } catch {
       setIsLoggedIn(false);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const login = (type, email, name, id = null) => {
-    setUserType(type);
-    setUserEmail(email);
-    setUserName(name || (type === 'instructor' ? 'Dr. Robert Chen' : 'John Doe'));
-    setUserId(id || email);
-    setIsLoggedIn(true);
+  /**
+   * Gerçek login — backend'e bağlanır, token kaydeder, state günceller.
+   * @param {string} username
+   * @param {string} password
+   * @param {string} [expectedRole] - 'student' | 'instructor' | 'admin'
+   * @returns {{ success: boolean, error?: string }}
+   */
+  const login = async (username, password, expectedRole = null) => {
+    setAuthError('');
+    setIsLoading(true);
+
+    try {
+      const result = await apiLogin(username, password);
+
+      if (!result.success) {
+        const err = result.message || 'Kullanıcı adı veya şifre hatalı';
+        setAuthError(err);
+        return { success: false, error: err };
+      }
+
+      const user = result.user;
+
+      // Rol kontrolü (opsiyonel)
+      if (expectedRole && user.role !== expectedRole) {
+        const err = `Bu hesap ${expectedRole} olarak kayıtlı değil`;
+        setAuthError(err);
+        return { success: false, error: err };
+      }
+
+      // State güncelle
+      setUserType(user.role);
+      setUserRole(user.role);
+      setUserName(user.name || user.username);
+      setUserEmail(user.email || '');
+      setUserId(user.username);
+      setIsLoggedIn(true);
+
+      return { success: true, user };
+    } catch (err) {
+      const message = err?.message || 'Beklenmeyen bir hata oluştu';
+      setAuthError(message);
+      return { success: false, error: message };
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  /**
+   * Logout — backend'i bilgilendirir, token'ları ve state'i temizler.
+   */
   const logout = async () => {
     try {
-      // Clear tokens from secure storage
-      await clearTokens();
-      
-      // Reset state
+      await apiLogout();
+    } catch {
+      // Hata olsa bile state'i temizle
+    } finally {
       setUserType('student');
+      setUserRole('');
       setUserEmail('');
       setUserName('');
       setUserId('');
       setIsLoggedIn(false);
-    } catch (error) {
-      console.error('Error during logout:', error);
+      setAuthError('');
     }
   };
 
   return (
-    <UserContext.Provider value={{ 
-      userType, 
-      userEmail, 
+    <UserContext.Provider value={{
+      userType,
+      userRole,
+      userEmail,
       userName,
       userId,
       isLoggedIn,
       isLoading,
-      login, 
+      authError,
+      login,
       logout,
       checkAuthStatus
     }}>
@@ -76,5 +120,3 @@ export function useUser() {
   }
   return context;
 }
-
-

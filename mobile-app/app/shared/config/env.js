@@ -7,10 +7,16 @@ import Constants from 'expo-constants';
 
 const ENV = {
     development: {
-        // IMPORTANT: Use your local network IP, not localhost!
-        // Find your IP: ipconfig (Windows) or ifconfig (Mac/Linux)
-        // Current IP: 192.168.1.102 (Updated)
-        API_URL: 'http://192.168.1.102:5000',
+        // SECENEK 1 — Yerel IP (aynı WiFi ağındaysanız):
+        //   ipconfig komutuyla IPv4 adresinizi bulun, buraya yazın.
+        //   Mevcut IP: 192.168.1.100
+        //
+        // SECENEK 2 — ngrok (önerilen, IP değişse de çalışır):
+        //   ngrok http 5000 → http://localhost:4040 → HTTPS URL'yi kopyalayın.
+        //   Örnek: 'https://abc123.ngrok-free.app'
+        //
+        // NGROK KULLANIYORSANIZ aşağıdaki satırı ngrok URL ile değiştirin:
+        API_URL: 'https://nongospel-aerially-tressa.ngrok-free.dev/',
         ENABLE_DEVTOOLS: true,
         LOG_LEVEL: 'debug'
     },

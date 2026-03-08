@@ -5,20 +5,26 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Load user from localStorage on mount
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
+    const savedToken = localStorage.getItem('access_token');
+
     if (savedUser) {
       try {
         setUser(JSON.parse(savedUser));
-      } catch (error) {
-        console.error('Error parsing saved user:', error);
+      } catch {
         localStorage.removeItem('user');
       }
     }
+
+    if (savedToken) {
+      setAccessToken(savedToken);
+    }
+
     setIsLoading(false);
   }, []);
 
@@ -31,14 +37,15 @@ export const AuthProvider = ({ children }) => {
 
       if (result.success) {
         setUser(result.user);
+        setAccessToken(result.access_token);
         localStorage.setItem('user', JSON.stringify(result.user));
         return { success: true };
       } else {
         setError(result.error);
         return { success: false, error: result.error };
       }
-    } catch (err) {
-      const errorMessage = 'An unexpected error occurred';
+    } catch {
+      const errorMessage = 'Beklenmeyen bir hata oluştu';
       setError(errorMessage);
       return { success: false, error: errorMessage };
     } finally {
@@ -49,15 +56,27 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     await logoutUser();
     setUser(null);
+    setAccessToken(null);
     localStorage.removeItem('user');
+  };
+
+  /**
+   * Returns Authorization header object for authenticated API calls.
+   * Usage: fetch(url, { headers: { ...getAuthHeader(), 'Content-Type': 'application/json' } })
+   */
+  const getAuthHeader = () => {
+    const token = accessToken || localStorage.getItem('access_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
   const value = {
     user,
+    accessToken,
     isLoading,
     error,
     login,
     logout,
+    getAuthHeader,
     isAuthenticated: !!user
   };
 
@@ -71,4 +90,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

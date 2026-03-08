@@ -5,18 +5,17 @@ import { useRouter } from 'expo-router';
 import { useUser } from '../context/UserContext';
 import { Camera } from 'expo-camera';
 import InstructorHome from '../screens/InstructorHome';
-import ExcuseModal from '../components/ExcuseModal';
 import Header from '../components/home/Header';
 import FaceWarning from '../components/home/FaceWarning';
 import LiveClassCard from '../components/home/LiveClassCard';
 import QuickActions from '../components/home/QuickActions';
 import MonthStats from '../components/home/MonthStats';
 import RecentActivity from '../components/home/RecentActivity';
+import { sessions } from '../shared/services/api';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { userType, userName } = useUser();
-  const [isExcuseModalVisible, setExcuseModalVisible] = useState(false);
   const [hasFaceRegistered] = useState(false);
 
   if (userType === 'instructor') {
@@ -88,12 +87,49 @@ export default function HomeScreen() {
     }
   };
 
-  const handleFaceScan = () => {
-    handleCameraAction(
-      () => router.push(hasFaceRegistered ? '/face-scan' : '/register-face'),
-      'Face Scan'
-    );
+  /**
+   * Yoklama başlatma — önce aktif session sorgular, sonra GPS doğrulamaya yönlendirir.
+   * Yoklama zinciri: GPS → Yüz → QR
+   */
+  const handleStartAttendance = async () => {
+    // Yüz kaydı yoksa önce kayıt yaptır
+    if (!hasFaceRegistered) {
+      handleCameraAction(
+        () => router.push('/register-face'),
+        'Yüz Kaydı'
+      );
+      return;
+    }
+
+    try {
+      const result = await sessions.getActive();
+      const activeSessions = result?.sessions || [];
+
+      if (activeSessions.length === 0) {
+        Alert.alert(
+          'Aktif Ders Yok',
+          'Şu an aktif bir yoklama oturumu bulunmuyor. Ders başlayana kadar bekleyin.',
+          [{ text: 'Tamam' }]
+        );
+        return;
+      }
+
+      // Birden fazla aktif session varsa ilkini kullan
+      const session = activeSessions[0];
+      handleCameraAction(
+        () => router.push({ pathname: '/gps-verify', params: { session_id: session.id } }),
+        'Yoklama'
+      );
+    } catch (err) {
+      Alert.alert(
+        'Bağlantı Hatası',
+        'Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.',
+        [{ text: 'Tamam' }]
+      );
+    }
   };
+
+  const handleFaceScan = () => handleStartAttendance();
 
   const handleQRScan = () => {
     handleCameraAction(
@@ -120,7 +156,14 @@ export default function HomeScreen() {
           hasFaceRegistered={hasFaceRegistered}
           onFaceScan={handleFaceScan}
           onQRScan={handleQRScan}
-          onExcuse={() => setExcuseModalVisible(true)}
+          onExcuse={() => router.push({
+            pathname: '/excuse-submit',
+            params: {
+              course_id: liveClass.course,
+              course_name: liveClass.title,
+              session_date: new Date().toISOString().slice(0, 10),
+            },
+          })}
           onHistory={() => router.push('/(tabs)/history')}
         />
         
@@ -131,16 +174,6 @@ export default function HomeScreen() {
           onViewAll={() => router.push('/(tabs)/history')}
         />
       </ScrollView>
-
-      <ExcuseModal
-        visible={isExcuseModalVisible}
-        onClose={() => setExcuseModalVisible(false)}
-        attendanceRecord={{
-          id: 'temp',
-          date: new Date().toISOString().split('T')[0],
-          status: 'Absent',
-        }}
-      />
     </SafeAreaView>
   );
 }

@@ -9,7 +9,7 @@ import {
   Alert,
   Linking,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +18,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function FaceScanScreen() {
   const router = useRouter();
+  const { session_id, location_bypassed, location_distance } = useLocalSearchParams();
   const [hasPermission, setHasPermission] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [camera, setCamera] = useState(null);
@@ -31,20 +32,25 @@ export default function FaceScanScreen() {
 
   const handleStartScan = async () => {
     setIsScanning(true);
-    
-    // Simulate face scanning
+
+    // TODO (Phase 5): Replace simulation with real face recognition API call
+    // const image = await captureFromCamera();
+    // const result = await apiAdapter.post('/verify/face', { image, session_id });
     setTimeout(() => {
       setIsScanning(false);
-      Alert.alert(
-        'Success!',
-        'Attendance marked successfully',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+      // Proceed to QR scan (Step 3 of 3)
+      // location_bypassed ve location_distance GPS adımından miras alınır.
+      // face_simulated = true çünkü gerçek yüz tanıma henüz entegre edilmedi.
+      router.push({
+        pathname: '/qr-scan',
+        params: {
+          session_id,
+          location_bypassed: location_bypassed ?? 'false',
+          location_distance: location_distance ?? null,
+          face_simulated: 'true',
+          face_confidence: null,
+        },
+      });
     }, 3000);
   };
 
@@ -107,9 +113,7 @@ export default function FaceScanScreen() {
           </TouchableOpacity>
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>Face ID Attendance</Text>
-            <Text style={styles.headerSubtitle}>
-              Position your face within the frame
-            </Text>
+            <Text style={styles.headerSubtitle}>Adım 2 / 3 — Yüz Tanıma</Text>
           </View>
         </View>
 
