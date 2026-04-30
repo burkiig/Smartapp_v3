@@ -2,6 +2,8 @@
 
 Yüz tanıma, QR kod ve GPS doğrulama kullanan üç aşamalı akıllı yoklama sistemi.
 
+**API Sürümü:** v3.0.0 &nbsp;|&nbsp; **Backend:** FastAPI &nbsp;|&nbsp; **DB:** SQLite (dev) / PostgreSQL (prod) &nbsp;|&nbsp; **Storage:** Supabase (opsiyonel)
+
 ---
 
 ## Proje Genel Bakış
@@ -21,14 +23,50 @@ Proje üç ana bileşenden oluşur:
 ## Proje Yapısı
 
 ```
-SmartApp/
-├── backend/                    # FastAPI backend
-│   ├── main.py                 # Uygulama giriş noktası
-│   ├── requirements.txt        # Python bağımlılıkları
-│   ├── .env                    # Ortam değişkenleri (git'e ekleme)
-│   ├── .env.example            # Örnek .env şablonu
+Smart_Attendance_System/
+├── docker-compose.yml              # Tüm servisleri ayağa kaldırır
+├── .env                            # Root ortam değişkenleri (git'e ekleme!)
+│
+├── backend/                        # FastAPI backend
+│   ├── main.py                     # Uygulama giriş noktası (v3.0.0)
+│   ├── requirements.txt            # Python bağımlılıkları
+│   ├── requirements-dev.txt        # Test/geliştirme bağımlılıkları
+│   ├── Dockerfile                  # Backend container tanımı
+│   ├── entrypoint.sh               # Docker başlangıç scripti (migration + server)
+│   ├── pytest.ini                  # Test konfigürasyonu
+│   ├── .env.example                # Ortam değişkenleri şablonu
+│   ├── alembic.ini                 # Alembic konfigürasyonu
+│   │
+│   ├── alembic/                    # Veritabanı migration'ları
+│   │   ├── env.py
+│   │   └── versions/
+│   │       ├── 0000_baseline.py
+│   │       ├── b373651be828_initial_schema.py
+│   │       ├── a1b2c3d4e5f6_new_features.py    # Bildirim, dispute, sistem ayarları
+│   │       ├── d9e8f7a6b5c4_postgres_hardening.py
+│   │       └── f1e2d3c4b5a6_notifications_table.py
+│   │
+│   ├── scripts/
+│   │   └── encrypt_existing_embeddings.py      # Eski embedding'leri şifreler
+│   │
+│   ├── tests/                      # Pytest test suite
+│   │   ├── conftest.py             # Fixture'lar, test DB kurulumu
+│   │   ├── test_auth.py
+│   │   ├── test_attendance.py
+│   │   ├── test_courses.py
+│   │   ├── test_dashboard.py
+│   │   ├── test_face.py
+│   │   ├── test_health.py
+│   │   ├── test_rbac.py
+│   │   ├── test_sessions.py
+│   │   └── test_users.py
+│   │
 │   └── app/
-│       ├── api/                # HTTP route'ları (9 modül)
+│       ├── adapters/               # Storage soyutlama katmanı
+│       │   ├── storage_adapter.py  # Abstract StorageAdapter arayüzü
+│       │   └── supabase_storage.py # Supabase Storage implementasyonu
+│       │
+│       ├── api/                    # HTTP route'ları (13 modül)
 │       │   ├── auth.py
 │       │   ├── users.py
 │       │   ├── courses.py
@@ -37,109 +75,145 @@ SmartApp/
 │       │   ├── attendance.py
 │       │   ├── face.py
 │       │   ├── excuses.py
-│       │   └── dashboard.py
+│       │   ├── dashboard.py
+│       │   ├── notifications.py    # YENİ: bildirim sistemi
+│       │   ├── audit_logs.py       # YENİ: denetim kaydı (admin)
+│       │   ├── disputes.py         # YENİ: yoklama itiraz sistemi
+│       │   └── admin_settings.py   # YENİ: dinamik sistem ayarları
+│       │
 │       ├── config/
-│       │   └── settings.py     # Merkezi konfigürasyon
+│       │   └── settings.py         # Pydantic Settings (tüm env değişkenleri)
+│       │
 │       ├── core/
-│       │   └── startup.py      # DB başlatma, admin seed
+│       │   └── startup.py          # DB başlatma, admin seed, scheduler başlatma
+│       │
 │       ├── database/
-│       │   └── connection.py   # SQLAlchemy engine, session, Base
+│       │   ├── connection.py       # SQLAlchemy engine, session, Base
+│       │   └── types.py            # Özel kolon tipleri (JSON uyumlu)
+│       │
 │       ├── integrations/
-│       │   └── face_engine.py  # InsightFace yüz tanıma motoru
-│       ├── models/             # SQLAlchemy ORM modelleri
+│       │   ├── face_engine.py      # InsightFace yüz tanıma motoru
+│       │   └── supabase_client.py  # Supabase API istemcisi
+│       │
+│       ├── middleware/
+│       │   └── sanitization.py     # YENİ: body boyutu, content-type, pattern tarama
+│       │
+│       ├── models/                 # SQLAlchemy ORM modelleri
 │       │   ├── user.py
 │       │   ├── course.py
 │       │   ├── room.py
 │       │   ├── session.py
 │       │   ├── attendance.py
 │       │   ├── face_reference.py
-│       │   └── excuse.py
-│       ├── repositories/       # Veritabanı CRUD katmanı
+│       │   ├── excuse.py
+│       │   ├── notification.py     # YENİ
+│       │   ├── audit_log.py        # YENİ
+│       │   ├── dispute.py          # YENİ
+│       │   └── system_setting.py   # YENİ
+│       │
+│       ├── repositories/           # Veritabanı CRUD katmanı
 │       │   ├── user_repo.py
 │       │   ├── course_repo.py
 │       │   ├── room_repo.py
 │       │   ├── session_repo.py
 │       │   ├── attendance_repo.py
 │       │   ├── face_repo.py
-│       │   └── excuse_repo.py
-│       ├── schemas/            # Pydantic doğrulama şemaları
+│       │   ├── excuse_repo.py
+│       │   └── notification_repo.py  # YENİ
+│       │
+│       ├── schemas/                # Pydantic doğrulama şemaları
 │       │   ├── user.py
 │       │   ├── course.py
 │       │   ├── room.py
 │       │   ├── session.py
 │       │   ├── attendance.py
 │       │   └── excuse.py
+│       │
 │       ├── security/
-│       │   ├── jwt.py          # Token oluşturma (access + refresh)
-│       │   ├── password.py     # bcrypt hash/verify
-│       │   └── dependencies.py # FastAPI bağımlılıkları (get_current_user vb.)
-│       ├── services/           # İş mantığı katmanı
+│       │   ├── jwt.py              # Token oluşturma (access + refresh)
+│       │   ├── password.py         # bcrypt hash/verify
+│       │   ├── dependencies.py     # FastAPI bağımlılıkları (get_current_user vb.)
+│       │   └── crypto.py           # YENİ: Fernet tabanlı embedding şifreleme
+│       │
+│       ├── services/               # İş mantığı katmanı
 │       │   ├── auth_service.py
 │       │   ├── session_service.py
-│       │   ├── attendance_service.py  # 3 aşamalı yoklama pipeline
+│       │   ├── attendance_service.py   # 3 aşamalı yoklama pipeline
 │       │   ├── face_service.py
-│       │   └── scheduler.py    # APScheduler: otomatik oturum kapatma
+│       │   ├── excuse_service.py       # YENİ: mazeret iş mantığı
+│       │   ├── notification_service.py # YENİ: bildirim oluşturma & broadcast
+│       │   ├── audit_service.py        # YENİ: denetim kaydı loglama
+│       │   └── scheduler.py            # APScheduler: otomatik oturum kapatma
+│       │
 │       └── utils/
-│           ├── qr.py           # QR token üretme ve base64 görsel
-│           ├── location.py     # Haversine mesafe, geofence doğrulama
-│           └── push.py         # Expo push notification gönderimi
+│           ├── qr.py               # QR token üretme ve base64 görsel
+│           ├── location.py         # Haversine mesafe, geofence doğrulama
+│           └── push.py             # Expo push notification gönderimi
 │
-├── web-panel/                  # React admin/öğretmen paneli
+├── web-panel/                      # React admin/öğretmen paneli
 │   ├── package.json
+│   ├── Dockerfile
+│   ├── playwright.config.js        # E2E test konfigürasyonu
 │   ├── public/
-│   │   ├── index.html
-│   │   ├── manifest.json
-│   │   └── robots.txt
 │   └── src/
-│       ├── setupProxy.js       # CRA proxy: /api → localhost:8000
 │       ├── App.js
+│       ├── setupProxy.js           # CRA proxy: /api → localhost:8000
 │       ├── features/
-│       │   ├── auth/           # Giriş, JWT context
-│       │   ├── attendance/     # Yoklama kayıtları, mazeretler
-│       │   ├── dashboard/      # Admin/öğretmen/öğrenci dashboard
-│       │   ├── schedule/       # Haftalık ders programı
-│       │   ├── settings/       # Ayarlar sayfası
-│       │   └── students/       # Öğrenci kayıt formu
-│       ├── pages/              # LoginPage
+│       │   ├── auth/               # Giriş, JWT context
+│       │   ├── attendance/         # Yoklama kayıtları, mazeretler
+│       │   │   ├── components/
+│       │   │   │   └── ExcuseDetailsModal/  # YENİ: mazeret detay modalı
+│       │   │   └── services/
+│       │   │       └── excuseService.js     # YENİ: mazeret API servisi
+│       │   ├── dashboard/          # Admin/öğretmen/öğrenci dashboard
+│       │   ├── schedule/           # Haftalık ders programı
+│       │   ├── settings/           # Ayarlar sayfası
+│       │   └── students/           # Öğrenci kayıt formu
+│       ├── pages/
 │       └── shared/
 │           ├── services/
-│           │   └── apiClient.js  # Axios, JWT refresh interceptor
-│           ├── config/env.js
-│           ├── hooks/useCamera.js
-│           ├── styles/tokens.js
-│           └── components/     # Layout, UI bileşenleri
+│           │   └── apiClient.js    # Axios, JWT refresh interceptor
+│           └── components/
+│               └── NotificationBell/   # YENİ: bildirim zili bileşeni
 │
-└── mobile-app/                 # React Native Expo mobil uygulama
+└── mobile-app/                     # React Native Expo mobil uygulama
     ├── package.json
     ├── app.config.js
     ├── babel.config.js
     ├── tailwind.config.js
     └── app/
-        ├── _layout.js          # Expo Router kök layout
-        ├── index.js            # Giriş / yönlendirme
-        ├── qr-scan.js          # ADIM 1: QR tarama
-        ├── face-scan.js        # ADIM 2: Yüz doğrulama
-        ├── gps-verify.js       # ADIM 3: Konum doğrulama
-        ├── register-face.js    # İlk yüz kaydı
-        ├── (tabs)/             # Ana sekme navigasyonu
-        │   ├── home.js         # Ana ekran
+        ├── _layout.js              # Expo Router kök layout
+        ├── index.js                # Giriş / yönlendirme
+        ├── qr-scan.js              # ADIM 1: QR tarama
+        ├── face-scan.js            # ADIM 2: Yüz doğrulama
+        ├── gps-verify.js           # ADIM 3: Konum doğrulama
+        ├── register-face.js        # İlk yüz kaydı
+        ├── cancel-class.js         # YENİ: ders iptali
+        ├── excuse-submit.js        # YENİ: mazeret gönderme ekranı
+        ├── class-details.js        # YENİ: ders detayları
+        ├── settings.js             # YENİ: uygulama ayarları
+        ├── (tabs)/                 # Ana sekme navigasyonu
+        │   ├── home.js
         │   ├── attendance.js
         │   ├── history.js
         │   ├── schedule.js
         │   ├── profile.js
-        │   └── ...
-        ├── screens/            # Öğretmen ekranları
+        │   ├── dashboard.js        # YENİ
+        │   ├── reports.js          # YENİ
+        │   └── more.js             # YENİ
+        ├── components/
+        │   └── ExcuseModal.js      # YENİ: mazeret modal bileşeni
+        ├── _screens/               # Öğretmen ekranları
         │   ├── InstructorHome.js
         │   ├── InstructorHistory.js
         │   └── InstructorProfile.js
         └── shared/
             ├── services/
-            │   ├── api.js           # Tüm API endpoint çağrıları
-            │   ├── authService.js   # Giriş, token saklama
+            │   ├── api.js
+            │   ├── authService.js
             │   ├── attendanceService.js
-            │   └── ...
-            ├── utils/apiAdapter.js  # SecureStore token yönetimi
-            └── config/env.js
+            │   └── notificationService.js  # YENİ: bildirim servisi
+            └── utils/apiAdapter.js         # SecureStore token yönetimi
 ```
 
 ---
@@ -182,18 +256,42 @@ Mobile / Web Panel
       ▼
 FastAPI /api/v1/*
       │
+      ├─ SanitizationMiddleware (body boyutu, içerik tipi, XSS tarama)
       ├─ Security: JWT decode → get_current_user
       ├─ Router → Service → Repository
       ├─ SQLAlchemy ORM
       ▼
 SQLite (dev) / PostgreSQL (prod)
+      │
+      ├─ Supabase Storage (opsiyonel — yüz görsel depolama)
 ```
 
 ---
 
 ## Kurulum
 
-### 1. Backend
+### Seçenek A: Docker Compose (Önerilen)
+
+```bash
+# Root .env dosyasını oluştur
+cp backend/.env.example .env
+# .env içinde SECRET_KEY ve ADMIN_PASSWORD değerlerini mutlaka değiştir!
+
+# Tüm servisleri başlat
+docker compose up --build
+
+# Geliştirme araçlarıyla (Adminer DB UI dahil):
+docker compose --profile dev up --build
+```
+
+Servisler:
+- Backend API: `http://localhost:8000`
+- Web Panel: `http://localhost:3000`
+- Adminer (DB UI): `http://localhost:8080` *(yalnızca dev profiliyle)*
+
+### Seçenek B: Manuel Kurulum
+
+#### 1. Backend
 
 ```bash
 cd backend
@@ -215,9 +313,9 @@ python -m uvicorn main:app --reload
 ```
 
 Backend `http://localhost:8000` adresinde çalışır.
-API dokümantasyonu: `http://localhost:8000/docs`
+API dokümantasyonu: `http://localhost:8000/docs` *(yalnızca DEBUG=true)*
 
-### 2. Web Panel
+#### 2. Web Panel
 
 ```bash
 cd web-panel
@@ -227,7 +325,7 @@ npm start
 
 Panel `http://localhost:3000` adresinde açılır.
 
-### 3. Mobile App
+#### 3. Mobile App
 
 ```bash
 cd mobile-app
@@ -235,13 +333,33 @@ npm install --legacy-peer-deps
 npx expo start
 ```
 
-Expo Go uygulaması veya emülatör ile `http://localhost:8081` üzerinden bağlan.
+Expo Go uygulaması veya emülatör ile bağlan.
+
+---
+
+## Veritabanı Migration (Alembic)
+
+```bash
+cd backend
+
+# Migration geçmişini gör
+alembic history
+
+# Tüm migration'ları uygula
+alembic upgrade head
+
+# Yeni migration oluştur (model değişikliği sonrası)
+alembic revision --autogenerate -m "açıklama"
+
+# Bir önceki sürüme dön
+alembic downgrade -1
+```
+
+Docker ile migration otomatik olarak `entrypoint.sh` tarafından çalıştırılır.
 
 ---
 
 ## Backend Test Standardı (Docker)
-
-Yerel testlerde host/compose farkından kaynaklı DB bağlantı hatalarını önlemek için testleri daima aşağıdaki komutla çalıştırın:
 
 ```bash
 docker compose run --rm --no-deps \
@@ -250,10 +368,17 @@ docker compose run --rm --no-deps \
   backend python -m pytest -v
 ```
 
+Yerel ortamda:
+
+```bash
+cd backend
+TESTING=true DATABASE_URL=sqlite:///./test.db python -m pytest -v
+```
+
 Notlar:
 - `--no-deps` ile `db` container'ı zorunlu değildir.
-- Test veritabanı SQLite'dır; development/production PostgreSQL yapılandırması etkilenmez.
-- Standart dışı komutlar (`python -m pytest` doğrudan hosttan vb.) ortamlar arası farklı hatalara neden olabilir.
+- Test veritabanı SQLite'dır; production yapılandırması etkilenmez.
+- Test dosyaları: `tests/test_auth.py`, `test_attendance.py`, `test_rbac.py` vb.
 
 ---
 
@@ -262,23 +387,39 @@ Notlar:
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./smart_attendance.db` | SQLite veya PostgreSQL bağlantı URL'i |
-| `SECRET_KEY` | `change-this-...` | JWT imzalama anahtarı — **production'da değiştir!** |
+| `SECRET_KEY` | — | JWT imzalama anahtarı — **production'da uzun rastgele string kullan!** |
+| `ENCRYPTION_KEY` | — | Yüz embedding şifreleme anahtarı (Fernet) — 32 byte hex |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token geçerlilik süresi |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token geçerlilik süresi |
 | `CORS_ORIGINS` | `localhost:3000,5173,8081` | İzin verilen frontend origin'leri |
-| `ADMIN_EMAIL` | `admin@attendance.com` | İlk admin e-postası |
+| `ADMIN_EMAIL` | `admin@smartapp.local` | İlk admin e-postası |
 | `ADMIN_USERNAME` | `admin` | İlk admin kullanıcı adı |
-| `ADMIN_PASSWORD` | `admin123` | İlk admin şifresi — **değiştir!** |
+| `ADMIN_PASSWORD` | — | İlk admin şifresi — **güçlü bir şifre kullan!** |
+| `SUPABASE_URL` | — | Supabase proje URL'i (opsiyonel) |
+| `SUPABASE_ANON_KEY` | — | Supabase anon public key (opsiyonel) |
+| `SUPABASE_SERVICE_KEY` | — | Supabase service role key (opsiyonel, backend only) |
 | `FACE_SIMILARITY_THRESHOLD` | `0.4` | Yüz eşleşme eşiği (0–1, düşük = daha katı) |
+| `FACE_LIVENESS_THRESHOLD` | `0.5` | Canlılık kontrolü eşiği |
 | `DEFAULT_GEOFENCE_RADIUS_M` | `50` | Sınıf yarıçapı (metre) |
+| `MAX_GPS_ACCURACY_M` | `30.0` | Maksimum GPS hata toleransı (metre) |
+| `QR_TOKEN_TTL_SECONDS` | `60` | QR kodunun geçerlilik süresi (saniye) |
+| `LOGIN_RATE_LIMIT` | `10/minute` | Giriş denemesi hız sınırı |
+| `COOKIE_SECURE` | `false` | HTTPS zorunluluğu (production'da `true` yap) |
+| `COOKIE_SAMESITE` | `lax` | Cookie SameSite politikası |
+| `DEBUG` | `false` | Swagger UI ve detaylı hata mesajları |
 | `HOST` | `0.0.0.0` | Sunucu host adresi |
 | `PORT` | `8000` | Sunucu portu |
+
+`ENCRYPTION_KEY` oluşturmak için:
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
 
 ---
 
 ## API Endpoint'leri
 
-Tüm endpoint'ler `/api/v1` prefix'i ile başlar.
+Tüm endpoint'ler `/api/v1` prefix'i ile başlar. Swagger UI: `http://localhost:8000/docs` *(DEBUG=true gerekli)*
 
 ### Auth (`/api/v1/auth`)
 
@@ -349,6 +490,39 @@ Tüm endpoint'ler `/api/v1` prefix'i ile başlar.
 | GET | `/` | Mazeretleri listele | Öğretmen/Admin |
 | PATCH | `/{id}/review` | Mazeret onayla/reddet | Öğretmen/Admin |
 
+### Disputes (`/api/v1/disputes`) — YENİ
+
+| Method | Path | Açıklama | Yetki |
+|---|---|---|---|
+| POST | `/` | Yoklama itirazı gönder | Öğrenci |
+| GET | `/` | İtirazları listele | Giriş yapılmış (role bazlı) |
+| PATCH | `/{id}` | İtirazı onayla/reddet | Öğretmen/Admin |
+
+### Notifications (`/api/v1/notifications`) — YENİ
+
+| Method | Path | Açıklama | Yetki |
+|---|---|---|---|
+| GET | `/count` | Okunmamış bildirim sayısı (badge için) | Giriş yapılmış |
+| GET | `/` | Bildirim listesi (sayfalı) | Giriş yapılmış |
+| PATCH | `/{id}/read` | Bildirimi okundu işaretle | Giriş yapılmış |
+| PATCH | `/read-all` | Tümünü okundu işaretle | Giriş yapılmış |
+| POST | `/broadcast` | Rol bazlı sistem duyurusu gönder | Admin |
+
+### Audit Logs (`/api/v1/audit-logs`) — YENİ
+
+| Method | Path | Açıklama | Yetki |
+|---|---|---|---|
+| GET | `/` | Denetim kayıtlarını listele (filtrelenebilir) | Admin |
+
+### Admin Settings (`/api/v1/admin/settings`) — YENİ
+
+| Method | Path | Açıklama | Yetki |
+|---|---|---|---|
+| GET | `/` | Tüm sistem ayarlarını getir | Admin |
+| PUT | `/{key}` | Bir ayarı güncelle | Admin |
+
+Dinamik ayarlar: `qr_token_ttl_seconds`, `min_attendance_rate`, `geofence_radius_m`
+
 ### Dashboard (`/api/v1/dashboard`)
 
 | Method | Path | Açıklama | Yetki |
@@ -357,15 +531,23 @@ Tüm endpoint'ler `/api/v1` prefix'i ile başlar.
 | GET | `/instructor` | Öğretmen dashboard verisi | Öğretmen |
 | GET | `/student` | Öğrenci dashboard verisi | Öğrenci |
 
+### Health
+
+| Method | Path | Açıklama |
+|---|---|---|
+| GET | `/health` | Temel sağlık kontrolü |
+| GET | `/api/v1/health` | API sağlık kontrolü |
+| GET | `/health/ready` | DB bağlantısı + storage + pool durumu |
+
 ---
 
 ## Roller ve Yetkiler
 
 | Rol | Türkçe | Yapabilecekleri |
 |---|---|---|
-| `admin` | Yönetici | Tüm işlemler: kullanıcı yönetimi, ders yönetimi, tüm raporlar |
-| `instructor` | Öğretmen | Oturum başlat/bitir, QR üret, yoklama gör, mazeret incele |
-| `student` | Öğrenci | Yoklamaya katıl (3 adım), kendi geçmişini gör, mazeret gönder |
+| `admin` | Yönetici | Tüm işlemler, kullanıcı yönetimi, sistem ayarları, denetim kayıtları |
+| `instructor` | Öğretmen | Oturum başlat/bitir, QR üret, yoklama gör, mazeret/itiraz incele |
+| `student` | Öğrenci | Yoklamaya katıl (3 adım), kendi geçmişini gör, mazeret/itiraz gönder |
 
 ---
 
@@ -380,13 +562,19 @@ attendance_sessions             → Yoklama oturumları (QR token içerir)
 attendance_attempts             → Her öğrencinin pipeline ilerleme durumu
 final_attendance_records        → Tamamlanan yoklama kayıtları
 class_cancellations             → İptal edilen dersler
-face_references                 → Yüz embedding vektörleri (base64)
+face_references                 → Yüz embedding vektörleri (Fernet şifreli)
 excuses                         → Mazeretler
+attendance_disputes             → Yoklama itirazları          [YENİ]
+notifications                   → Kullanıcı bildirimleri       [YENİ]
+audit_logs                      → Denetim kayıtları            [YENİ]
+system_settings                 → Dinamik sistem ayarları      [YENİ]
 ```
 
 ---
 
-## Yüz Tanıma
+## Özellikler
+
+### Yüz Tanıma
 
 Sistem **InsightFace `buffalo_l`** modelini kullanır.
 
@@ -394,6 +582,7 @@ Sistem **InsightFace `buffalo_l`** modelini kullanır.
 - **Benzerlik:** Cosine similarity ile karşılaştırma yapılır
 - **Eşik:** `FACE_SIMILARITY_THRESHOLD = 0.4` (varsayılan)
 - **Canlılık:** Pasif — iki ayrı kare arasındaki embedding farkına bakılır
+- **Şifreleme:** Fernet (AES-128-CBC) ile embedding'ler şifreli saklanır
 - **Fallback:** insightface kurulu değilse sistem çalışmaya devam eder, yüz adımı otomatik geçer
 
 ```bash
@@ -401,29 +590,65 @@ Sistem **InsightFace `buffalo_l`** modelini kullanır.
 pip install insightface onnxruntime opencv-python numpy
 ```
 
----
+### Yüz Embedding Şifreleme
 
-## Scheduler (Otomatik Oturum Kapatma)
+`ENCRYPTION_KEY` tanımlıysa yüz vektörleri veritabanına şifreli (`v1:<fernet_token>` formatında) yazılır. Mevcut şifresiz embedding'leri şifrelemek için:
+
+```bash
+python scripts/encrypt_existing_embeddings.py
+```
+
+### Bildirim Sistemi
+
+- Ders iptali → derse kayıtlı öğrencilere otomatik bildirim
+- Admin broadcast → rol bazlı sistem duyurusu
+- Web panel'de bildirim zili bileşeni (her 15–30 sn badge polling)
+- Mobil uygulamada Expo Push API entegrasyonu
+
+### Yoklama İtiraz Sistemi
+
+Öğrenciler eksik/hatalı yoklama kayıtları için itiraz gönderebilir. Öğretmen itirazı onaylarsa `FinalAttendanceRecord` otomatik güncellenir.
+
+### Denetim Kayıtları (Audit Log)
+
+Kritik işlemler (dispute, mazeret onayı vb.) `audit_logs` tablosuna kaydedilir. Admin panelinden eylem, aktör ve kaynak bazlı filtrelenerek görüntülenebilir.
+
+### Dinamik Sistem Ayarları
+
+Admin panelinden çalışma zamanında değiştirilebilen ayarlar:
+
+| Anahtar | Varsayılan | Açıklama |
+|---|---|---|
+| `qr_token_ttl_seconds` | `60` | QR kod geçerlilik süresi |
+| `min_attendance_rate` | `70` | Minimum devam oranı (%) |
+| `geofence_radius_m` | `50` | Konum doğrulama yarıçapı |
+
+### Sanitization Middleware
+
+Her gelen istek için:
+- Maksimum body boyutu kontrolü
+- Content-Type doğrulaması
+- Zararlı pattern taraması (XSS, injection)
+
+### Scheduler (Otomatik Oturum Kapatma)
 
 APScheduler ile her 5 dakikada bir aktif oturumlar kontrol edilir. Bitiş saati geçmiş oturumlar otomatik olarak `completed` durumuna alınır.
-
----
-
-## Push Bildirimleri
-
-Expo Push API kullanılır. Öğretmen ders iptal ettiğinde, derse kayıtlı öğrencilere otomatik bildirim gönderilir. Öğrencilerin push token'larını kaydetmesi için mobil uygulamadan `/api/v1/auth/push-token` endpoint'i çağrılmalıdır.
 
 ---
 
 ## Production'a Geçiş
 
 1. `SECRET_KEY` değerini uzun ve rastgele bir string ile değiştir
-2. `DATABASE_URL` değerini PostgreSQL bağlantı dizisiyle güncelle
-3. `ADMIN_PASSWORD` değerini güçlü bir şifreyle değiştir
-4. `DEBUG=false` yap
-5. Web panel için `npm run build` ile production build al
-6. Backend'i `gunicorn` ile başlat:
+2. `ENCRYPTION_KEY` oluştur: `python -c "import secrets; print(secrets.token_hex(32))"`
+3. `DATABASE_URL` değerini PostgreSQL bağlantı dizisiyle güncelle
+4. `ADMIN_PASSWORD` değerini güçlü bir şifreyle değiştir
+5. `DEBUG=false` yap (Swagger UI otomatik devre dışı kalır)
+6. `COOKIE_SECURE=true` ve `COOKIE_DOMAIN=.yourdomain.com` ayarla
+7. Supabase kullanıyorsan `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY` ekle
+8. Web panel için `npm run build` ile production build al
+9. Docker Compose ile başlat: `docker compose up -d`
 
+Alternatif olarak gunicorn ile:
 ```bash
 gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
@@ -432,25 +657,34 @@ gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 
 ## Geliştirme Notları
 
-### Önemli Değişiklikler (Entegrasyon)
+### Eski Sistemden Farklar
 
 Bu proje, eski Flask tabanlı monolitik `app.py` sisteminin yerine geçen tam yeniden yazımdır.
 
 | Eski Sistem | Yeni Sistem |
 |---|---|
-| Flask (monolitik `app.py`, 73KB) | FastAPI (modüler yapı, router/service/repo katmanları) |
-| JSON dosya tabanlı veri saklama | SQLAlchemy ORM (SQLite/PostgreSQL) |
+| Flask (monolitik `app.py`, 73KB) | FastAPI (modüler router/service/repo katmanları) |
+| JSON dosya tabanlı veri saklama | SQLAlchemy ORM (SQLite/PostgreSQL) + Alembic migration |
 | Mock/sahte data | Gerçek veritabanı kayıtları |
 | username bazlı JWT | E-posta veya kullanıcı adı ile JWT |
 | passlib (uyumsuz) | Doğrudan bcrypt kullanımı |
 | Tek aşamalı yoklama | 3 aşamalı pipeline (QR + Yüz + GPS) |
-| Push bildirim yok | Expo Push API entegrasyonu |
+| Bildirim yok | Expo Push API + in-app bildirim sistemi |
 | Scheduler yok | APScheduler (otomatik oturum kapatma) |
+| Şifreleme yok | Fernet tabanlı embedding şifreleme |
+| İtiraz sistemi yok | Yoklama itiraz & mazeret workflow |
+| Denetim kaydı yok | Audit log sistemi |
+| Docker desteği yok | Dockerfile + Docker Compose |
+| Test yok | Tam pytest suite (RBAC, auth, attendance, vb.) |
 
 ### Web Panel Proxy Yapılandırması
 
-`web-panel/src/setupProxy.js` dosyası, CRA dev sunucusunun yalnızca `/api` ile başlayan istekleri `http://localhost:8000`'e yönlendirmesini sağlar. Statik dosyalar, `/@vite`, `/@react-refresh` gibi CRA iç istekleri proxy'den geçmez.
+`web-panel/src/setupProxy.js` dosyası, yalnızca `/api` ile başlayan istekleri `http://localhost:8000`'e yönlendirir. Statik dosyalar proxy'den geçmez.
 
 ### Mobile Uygulama Token Yönetimi
 
 `expo-secure-store` kullanılarak access token ve refresh token güvenli şekilde cihazda saklanır. Token süresi dolduğunda `apiAdapter.js` içindeki interceptor otomatik olarak `/api/v1/auth/refresh` çağırır.
+
+### Supabase Entegrasyonu
+
+Supabase tamamen opsiyoneldir. `SUPABASE_URL` ve `SUPABASE_ANON_KEY` tanımlı değilse sistem yerel modda çalışır ve storage kontrolleri atlanır. Tanımlıysa `/health/ready` endpoint'i Supabase storage erişilebilirliğini de kontrol eder.
