@@ -19,6 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
+    inspector = sa.inspect(bind)
     if bind.dialect.name == "postgresql":
         # Embedding stays binary but uses PostgreSQL BYTEA storage.
         op.execute(
@@ -51,15 +52,20 @@ def upgrade() -> None:
             """
         )
 
-    with op.batch_alter_table("excuses") as batch_op:
-        batch_op.alter_column("document_url", new_column_name="storage_path")
+    excuse_cols = {col["name"] for col in inspector.get_columns("excuses")}
+    if "document_url" in excuse_cols and "storage_path" not in excuse_cols:
+        with op.batch_alter_table("excuses") as batch_op:
+            batch_op.alter_column("document_url", new_column_name="storage_path")
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("excuses") as batch_op:
-        batch_op.alter_column("storage_path", new_column_name="document_url")
-
     bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    excuse_cols = {col["name"] for col in inspector.get_columns("excuses")}
+    if "storage_path" in excuse_cols and "document_url" not in excuse_cols:
+        with op.batch_alter_table("excuses") as batch_op:
+            batch_op.alter_column("storage_path", new_column_name="document_url")
+
     if bind.dialect.name == "postgresql":
         op.execute("DROP POLICY IF EXISTS service_only ON face_references;")
         op.execute(

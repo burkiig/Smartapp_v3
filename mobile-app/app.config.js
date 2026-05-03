@@ -37,6 +37,10 @@ export default {
     extra: {
       // Environment variables - accessible via Constants.expoConfig.extra
       API_BASE_URL: process.env.API_BASE_URL || 'http://localhost:5000/api',
+      eas: {
+        // Leave empty if not configured yet; notification service handles it safely.
+        projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID || ''
+      }
     }
   }
 };

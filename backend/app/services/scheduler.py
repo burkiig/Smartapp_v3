@@ -83,6 +83,7 @@ def _open_scheduled_sessions():
 def _close_expired_sessions():
     from app.database.connection import SessionLocal
     from app.models.session import AttendanceSession
+    from app.services.session_service import SessionService
 
     db = SessionLocal()
     try:
@@ -104,6 +105,8 @@ def _close_expired_sessions():
             if current_time >= end_time:
                 session.status = "closed"
                 db.commit()
+                # Keep student history consistent: create absent rows for non-attendees.
+                SessionService(db).auto_mark_absent_students(session.id)
                 logger.info(f"[Scheduler] Auto-closed session {session.id} (end_time={session.end_time})")
     except Exception as e:
         logger.error(f"[Scheduler] _close_expired_sessions error: {e}")

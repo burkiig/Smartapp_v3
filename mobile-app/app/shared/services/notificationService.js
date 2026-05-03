@@ -10,6 +10,7 @@
 
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { auth } from './api';
 
@@ -21,6 +22,15 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+
+function getExpoProjectId() {
+  return (
+    Constants?.expoConfig?.extra?.eas?.projectId ||
+    Constants?.easConfig?.projectId ||
+    process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
+    null
+  );
+}
 
 /**
  * Bildirim izni ister ve Expo push token alır.
@@ -66,7 +76,15 @@ export async function registerForPushNotificationsAsync() {
       });
     }
 
-    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const projectId = getExpoProjectId();
+    if (!projectId) {
+      console.warn(
+        '[Notifications] Expo projectId bulunamadı. app.config.js -> extra.eas.projectId veya EXPO_PUBLIC_EAS_PROJECT_ID ayarlayın.'
+      );
+      return null;
+    }
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData.data;
     return token;
   } catch (error) {

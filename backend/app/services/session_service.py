@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.repositories.session_repo import SessionRepository
-from app.repositories.course_repo import CourseRepository
+from app.repositories.course_repo import CourseRepository, EnrollmentRepository
 from app.repositories.room_repo import RoomRepository
+from app.repositories.attendance_repo import FinalAttendanceRepository
 from app.models.session import AttendanceSession
 from app.models.user import User
 from app.utils.qr import generate_qr_token, build_qr_payload, generate_qr_image_base64
@@ -16,6 +17,8 @@ class SessionService:
         self.db = db
         self.session_repo = SessionRepository(db)
         self.course_repo = CourseRepository(db)
+        self.enrollment_repo = EnrollmentRepository(db)
+        self.final_repo = FinalAttendanceRepository(db)
         self.room_repo = RoomRepository(db)
 
     def start_session(self, course_id: int, created_by: User,
@@ -63,7 +66,49 @@ class SessionService:
             raise HTTPException(status_code=404, detail="Oturum bulunamadı")
         if session.status != "active":
             raise HTTPException(status_code=400, detail="Oturum zaten kapalı")
-        return self.session_repo.close(session)
+        closed = self.session_repo.close(session)
+        self.auto_mark_absent_students(closed.id)
+        return closed
+
+    def auto_mark_absent_students(self, session_id: int) -> int:
+        """
+        Ensure enrolled students with no final record are recorded as absent.
+        Idempotent: can be called multiple times safely.
+        """
+        session = self.session_repo.get_by_id(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+
+        enrollments = self.enrollment_repo.get_by_course(session.course_id)
+        enrolled_ids = {e.student_id for e in enrollments}
+        if not enrolled_ids:
+            return 0
+
+        existing_records = self.final_repo.get_by_session(session_id)
+        recorded_ids = {r.student_id for r in existing_records}
+        absent_ids = enrolled_ids - recorded_ids
+        if not absent_ids:
+            return 0
+
+        created = 0
+        for student_id in absent_ids:
+            self.final_repo.create(
+                student_id=student_id,
+                session_id=session_id,
+                course_id=session.course_id,
+                status="absent",
+                is_flagged=False,
+                flag_reason=None,
+                verification_steps={
+                    "qr_ok": False,
+                    "face_ok": False,
+                    "location_ok": False,
+                    "auto_marked_absent": True,
+                },
+            )
+            created += 1
+
+        return created
 
     def get_qr_image(self, session_id: int) -> str:
         session = self.session_repo.get_by_id(session_id)

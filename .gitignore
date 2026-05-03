@@ -1,12 +1,6 @@
-# Environment variables — never commit secrets
-.env
-.env.local
-.env.staging
-.env.prod
-.env.production
-.env.development
-.env.*.local
-# .env.example is intentionally tracked (contains only placeholders)
+# Environment — never commit secrets (templates stay tracked)
+.env*
+!.env.example
 
 # Python
 __pycache__/
@@ -17,6 +11,7 @@ __pycache__/
 *.pyc
 
 # Virtual environments
+.venv/
 env/
 venv/
 ENV/
