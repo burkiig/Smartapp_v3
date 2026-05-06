@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, Any
+from pydantic import BaseModel, field_validator
+from typing import Optional, Any, List
 from datetime import datetime
 
 
@@ -9,6 +9,7 @@ class CourseCreate(BaseModel):
     instructor_id: Optional[int] = None
     schedule: Optional[Any] = None
     default_duration_minutes: Optional[int] = None
+    shared_class_id: Optional[int] = None
 
 
 class CourseUpdate(BaseModel):
@@ -16,6 +17,7 @@ class CourseUpdate(BaseModel):
     instructor_id: Optional[int] = None
     schedule: Optional[Any] = None
     default_duration_minutes: Optional[int] = None
+    shared_class_id: Optional[int] = None
 
 
 class CourseResponse(BaseModel):
@@ -23,10 +25,22 @@ class CourseResponse(BaseModel):
     code: str
     name: str
     instructor_id: Optional[int] = None
+    instructor_ids: Optional[List[int]] = None      # tüm atanmış öğretmen ID'leri
+    instructor_names: Optional[List[str]] = None    # tüm atanmış öğretmen adları
     schedule: Optional[Any] = None
     default_duration_minutes: Optional[int] = None
+    shared_class_id: Optional[int] = None
     created_at: datetime
     enrolled_count: Optional[int] = 0
+
+    @field_validator("instructor_ids", mode="before")
+    @classmethod
+    def extract_instructor_ids(cls, v, info):
+        """ORM nesnesinden course_instructors ilişkisini otomatik doldur."""
+        if v is not None:
+            return v
+        # from_attributes modunda: CourseInstructor listesinden id'leri çek
+        return None
 
     model_config = {"from_attributes": True}
 

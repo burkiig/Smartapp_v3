@@ -48,11 +48,26 @@ class SessionService:
         today = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         now_time = start_time or datetime.now(timezone.utc).strftime("%H:%M")
 
+        # end_time verilmemişse: önce ders programından, sonra default_duration_minutes'tan türet
+        resolved_end_time = end_time
+        if resolved_end_time is None and course.schedule:
+            resolved_end_time = course.schedule.get("end_time")
+        if resolved_end_time is None and course.default_duration_minutes:
+            try:
+                from datetime import timedelta
+                h, m = map(int, now_time.split(":"))
+                end_dt = datetime.now(timezone.utc).replace(
+                    hour=h, minute=m, second=0, microsecond=0
+                ) + timedelta(minutes=course.default_duration_minutes)
+                resolved_end_time = end_dt.strftime("%H:%M")
+            except Exception:
+                pass
+
         session = self.session_repo.create(
             course_id=course_id,
             date=today,
             start_time=now_time,
-            end_time=end_time,
+            end_time=resolved_end_time,
             qr_token=qr_token,
             latitude=latitude,
             longitude=longitude,
@@ -79,8 +94,13 @@ class SessionService:
         if not session:
             raise HTTPException(status_code=404, detail="Oturum bulunamadı")
 
-        enrollments = self.enrollment_repo.get_by_course(session.course_id)
-        enrolled_ids = {e.student_id for e in enrollments}
+        # Paralel ders desteği: shared_class_id varsa tüm paralel gruptaki öğrencileri dahil et
+        course = self.course_repo.get_by_id(session.course_id)
+        if course and course.shared_class_id is not None:
+            enrolled_ids = self.course_repo.get_parallel_enrolled_student_ids(course.shared_class_id)
+        else:
+            enrollments = self.enrollment_repo.get_by_course(session.course_id)
+            enrolled_ids = {e.student_id for e in enrollments}
         if not enrolled_ids:
             return 0
 

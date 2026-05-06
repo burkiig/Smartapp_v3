@@ -3,6 +3,12 @@ import apiClient from '../../../../shared/services/apiClient';
 import { Badge } from '../../../../shared/components/ui/Badge';
 import './ClassDetails.css';
 
+const STATUS_OPTIONS = [
+  { value: 'present', label: 'Katıldı',   color: '#059669', bg: '#D1FAE5' },
+  { value: 'absent',  label: 'Katılmadı', color: '#DC2626', bg: '#FEE2E2' },
+  { value: 'excused', label: 'Mazeretli', color: '#D97706', bg: '#FEF3C7' },
+];
+
 export const ClassDetails = ({ classData, onBack }) => {
   const [session, setSession] = useState(classData);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -11,6 +17,8 @@ export const ClassDetails = ({ classData, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [overriding, setOverriding] = useState(new Set());
+  const [localStatuses, setLocalStatuses] = useState({});
 
   const fetchDetails = useCallback(async () => {
     if (!session?.id) return;
@@ -60,6 +68,46 @@ export const ClassDetails = ({ classData, onBack }) => {
       onBack();
     } catch (err) {
       alert(err.message || 'İptal işlemi başarısız');
+    }
+  };
+
+  const getStatus = (recordId) => localStatuses[recordId] ?? null;
+
+  const handleOverrideRecord = async (record, newStatus) => {
+    const key = record.id;
+    if (overriding.has(key)) return;
+    if ((localStatuses[key] ?? record.status) === newStatus) return;
+    setOverriding(prev => new Set([...prev, key]));
+    setLocalStatuses(prev => ({ ...prev, [key]: newStatus }));
+    try {
+      await apiClient.patch(`/attendance/${record.id}/override`, {
+        status: newStatus,
+        note: 'Öğretmen tarafından güncellendi',
+      });
+    } catch (err) {
+      setLocalStatuses(prev => ({ ...prev, [key]: record.status }));
+      alert(err.message || 'Güncelleme başarısız');
+    } finally {
+      setOverriding(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
+
+  const handleSetStatus = async (studentId, newStatus) => {
+    const key = `new-${studentId}`;
+    if (overriding.has(key)) return;
+    setOverriding(prev => new Set([...prev, key]));
+    try {
+      await apiClient.put('/attendance/set-status', {
+        session_id: session.id,
+        student_id: studentId,
+        status: newStatus,
+        note: 'Öğretmen tarafından oluşturuldu',
+      });
+      await fetchDetails();
+    } catch (err) {
+      alert(err.message || 'Güncelleme başarısız');
+    } finally {
+      setOverriding(prev => { const n = new Set(prev); n.delete(key); return n; });
     }
   };
 
@@ -155,42 +203,54 @@ export const ClassDetails = ({ classData, onBack }) => {
                   <tr>
                     <th>Öğrenci</th>
                     <th>Zaman</th>
-                    <th>Durum</th>
+                    <th>Durum / Düzenle</th>
                     <th>Bayrak</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {attendanceRecords.map(r => (
-                    <tr key={r.id}>
-                      <td>
-                        <div className="student-cell">
-                          <div className="student-avatar-small">
-                            {(r.student_name || String(r.student_id)).charAt(0).toUpperCase()}
+                  {attendanceRecords.map(r => {
+                    const currentStatus = localStatuses[r.id] ?? r.status;
+                    const isBusy = overriding.has(r.id);
+                    return (
+                      <tr key={r.id}>
+                        <td>
+                          <div className="student-cell">
+                            <div className="student-avatar-small">
+                              {(r.student_name || String(r.student_id)).charAt(0).toUpperCase()}
+                            </div>
+                            <span>{r.student_name || `Öğrenci #${r.student_id}`}</span>
                           </div>
-                          <span>{r.student_name || `Öğrenci #${r.student_id}`}</span>
-                        </div>
-                      </td>
-                      <td>{r.marked_at ? new Date(r.marked_at).toLocaleTimeString('tr-TR') : '—'}</td>
-                      <td>
-                        <Badge variant={
-                          r.status === 'present' ? 'success' :
-                          r.status === 'pending_review' ? 'warning' :
-                          r.status === 'excused' ? 'info' : 'error'
-                        }>
-                          {r.status === 'present' ? '✓ Katıldı' :
-                           r.status === 'pending_review' ? '⏳ İncelemede' :
-                           r.status === 'excused' ? '📄 Mazeretli' : '○ Katılmadı'}
-                        </Badge>
-                      </td>
-                      <td>
-                        {r.is_flagged ? (
-                          <Badge variant="warning">{r.flag_reason || 'Şüpheli'}</Badge>
-                        ) : (
-                          <span className="ok-text">✓</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td>{r.marked_at ? new Date(r.marked_at).toLocaleTimeString('tr-TR') : '—'}</td>
+                        <td>
+                          <div className="status-btns">
+                            {STATUS_OPTIONS.map(opt => {
+                              const isActive = currentStatus === opt.value;
+                              return (
+                                <button
+                                  key={opt.value}
+                                  className={`status-override-btn${isActive ? ' active' : ''}`}
+                                  style={isActive ? { background: opt.bg, color: opt.color, borderColor: opt.color } : {}}
+                                  disabled={isBusy}
+                                  onClick={() => handleOverrideRecord(r, opt.value)}
+                                  title={opt.label}
+                                >
+                                  {isBusy && isActive ? '...' : opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td>
+                          {r.is_flagged ? (
+                            <Badge variant="warning">{r.flag_reason || 'Şüpheli'}</Badge>
+                          ) : (
+                            <span className="ok-text">✓</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -205,17 +265,35 @@ export const ClassDetails = ({ classData, onBack }) => {
             <div className="absent-list">
               {enrolledStudents
                 .filter(s => !presentIds.has(s.id))
-                .map(s => (
-                  <div key={s.id} className="absent-item">
-                    <div className="student-avatar-small">
-                      {(s.name || 'U').charAt(0).toUpperCase()}
+                .map(s => {
+                  const key = `new-${s.id}`;
+                  const isBusy = overriding.has(key);
+                  return (
+                    <div key={s.id} className="absent-item">
+                      <div className="student-avatar-small">
+                        {(s.name || 'U').charAt(0).toUpperCase()}
+                      </div>
+                      <div className="absent-info">
+                        <div className="absent-name">{s.name}</div>
+                        <div className="absent-detail">{s.student_number || s.email}</div>
+                      </div>
+                      <div className="status-btns absent-btns">
+                        {STATUS_OPTIONS.filter(o => o.value !== 'absent').map(opt => (
+                          <button
+                            key={opt.value}
+                            className="status-override-btn"
+                            style={{ color: opt.color, borderColor: opt.color + '66' }}
+                            disabled={isBusy || !session.id}
+                            onClick={() => handleSetStatus(s.id, opt.value)}
+                            title={`${opt.label} olarak işaretle`}
+                          >
+                            {isBusy ? '...' : opt.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="absent-info">
-                      <div className="absent-name">{s.name}</div>
-                      <div className="absent-detail">{s.student_number || s.email}</div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               {enrolledStudents.filter(s => !presentIds.has(s.id)).length === 0 && (
                 <p className="empty-text">Tüm öğrenciler katıldı!</p>
               )}

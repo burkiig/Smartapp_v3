@@ -57,26 +57,45 @@ export default function ClassDetailsScreen() {
     } catch {}
   };
 
-  const loadStudents = async (id) => {
+  const loadStudents = async (id, sessionId = null) => {
     setLoading(true);
     try {
+      const recordParams = sessionId ? { course_id: id, session_id: sessionId } : { course_id: id };
       const [enrolled, records] = await Promise.allSettled([
         coursesApi.students(id),
-        attendanceApi.getRecords({ course_id: id }),
+        attendanceApi.getRecords(recordParams),
       ]);
       const statusMap = {};
-      if (records.status === 'fulfilled' && Array.isArray(records.value)) {
-        records.value.forEach(r => { statusMap[r.student_id] = { status: r.status, dbId: r.id }; });
+      if (records.status === 'fulfilled') {
+        // Backend paginated response: { records: [...], total, page, ... } veya doğrudan dizi
+        const rawRecords = Array.isArray(records.value)
+          ? records.value
+          : (records.value?.records ?? []);
+        rawRecords.forEach(r => {
+          statusMap[r.student_id] = { status: r.status, dbId: r.id, recSessionId: r.session_id };
+        });
       }
       if (enrolled.status === 'fulfilled' && Array.isArray(enrolled.value) && enrolled.value.length > 0) {
         setStudents(enrolled.value.map(s => {
           const rec  = statusMap[s.id] || {};
           const name = s.name || s.username || `Öğrenci ${s.id}`;
-          return { id: String(s.id), dbId: rec.dbId || null, name, status: rec.status || 'absent', avatar: name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) };
+          return {
+            id: String(s.id),
+            dbId: rec.dbId || null,
+            recSessionId: rec.recSessionId || null,
+            name,
+            status: rec.status || 'absent',
+            avatar: name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+          };
         }));
-      } else if (records.status === 'fulfilled' && Array.isArray(records.value)) {
-        setStudents(records.value.map(r => ({
-          id: String(r.student_id), dbId: r.id,
+      } else if (records.status === 'fulfilled') {
+        const recs = Array.isArray(records.value)
+          ? records.value
+          : (records.value?.records ?? []);
+        setStudents(recs.map(r => ({
+          id: String(r.student_id),
+          dbId: r.id,
+          recSessionId: r.session_id,
           name: r.student_name || `Öğrenci ${r.student_id}`,
           status: r.status || 'absent',
           avatar: (r.student_name || `S${r.student_id}`).split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
@@ -141,14 +160,30 @@ export default function ClassDetailsScreen() {
   };
 
   const handleSave = async () => {
-    if (!activeSession) { Alert.alert('Hata', 'Aktif oturum bulunamadı.'); return; }
-    const withId = students.filter(s => s.dbId);
-    if (withId.length === 0) { Alert.alert('Bilgi', 'Güncellenecek kayıt bulunamadı.'); return; }
+    const sessionId = activeSession?.id;
+    const withRecord   = students.filter(s => s.dbId);
+    const withoutRecord = students.filter(s => !s.dbId && sessionId);
+
+    if (withRecord.length === 0 && withoutRecord.length === 0) {
+      Alert.alert('Bilgi', 'Güncellenecek kayıt bulunamadı. Aktif yoklama oturumu gerekli.');
+      return;
+    }
     try {
-      const results = await Promise.allSettled(withId.map(s => attendanceApi.review(s.dbId, false, null, s.status)));
+      const ops = [
+        ...withRecord.map(s => attendanceApi.override(s.dbId, s.status, 'Öğretmen tarafından manuel güncellendi')),
+        ...withoutRecord.map(s => attendanceApi.setStatus(sessionId, Number(s.id), s.status, 'Öğretmen tarafından oluşturuldu')),
+      ];
+      const results = await Promise.allSettled(ops);
       const fail = results.filter(r => r.status === 'rejected').length;
+      const total = ops.length;
       setUnsaved(false);
-      Alert.alert(fail > 0 ? 'Kısmen Kaydedildi' : 'Kaydedildi', fail > 0 ? `${withId.length - fail}/${withId.length} kayıt güncellendi.` : 'Yoklama güncellendi.');
+      if (fail > 0) {
+        Alert.alert('Kısmen Kaydedildi', `${total - fail}/${total} kayıt güncellendi.`);
+      } else {
+        Alert.alert('Kaydedildi', `${total} öğrencinin yoklama kaydı güncellendi.`);
+      }
+      // Yüklü listeyi yenile
+      if (courseId) loadStudents(courseId, sessionId);
     } catch (err) { Alert.alert('Hata', err?.message); }
   };
 
@@ -193,7 +228,7 @@ export default function ClassDetailsScreen() {
                   onPress={() => handleMark(item.id, st)}
                 >
                   <Text style={[styles.markBtnText, active && { color: m.color }]}>
-                    {st === 'present' ? 'M' : st === 'excused' ? 'E' : 'D'}
+                    {STATUS_MAP[st].label}
                   </Text>
                 </TouchableOpacity>
               );
@@ -498,9 +533,9 @@ const styles = StyleSheet.create({
   studentBody:  { flex: 1 },
   studentName:  { fontSize: 14, fontWeight: '600', color: Colors.text },
   studentId:    { fontSize: 12, color: Colors.textMuted, marginTop: 1 },
-  markBtns:     { flexDirection: 'row', gap: 6 },
-  markBtn:      { width: 32, height: 32, borderRadius: 8, borderWidth: 1.5, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bgAlt },
-  markBtnText:  { fontSize: 12, fontWeight: '700', color: Colors.textMuted },
+  markBtns:     { flexDirection: 'row', gap: 5 },
+  markBtn:      { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, borderWidth: 1.5, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bgAlt },
+  markBtnText:  { fontSize: 11, fontWeight: '700', color: Colors.textMuted },
   statusPill:   { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText:   { fontSize: 11, fontWeight: '700' },
 

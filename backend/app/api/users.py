@@ -97,6 +97,8 @@ def update_user(
 ):
     if current_user.role != "admin" and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Yetki gerekli")
+    if data.role is not None and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Rol değişikliği yalnızca admin tarafından yapılabilir")
     repo = UserRepository(db)
     user = repo.get_by_id(user_id)
     if not user:
@@ -107,12 +109,22 @@ def update_user(
 @router.delete("/{user_id}")
 def delete_user(
     user_id: int,
+    force: bool = False,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Kullanıcı sil (admin only).
+    force=false (varsayılan): soft delete — kullanıcı pasifleştirilir, tüm veriler korunur.
+    force=true: kalıcı silme — yoklama/mazeret kaydı varsa 409 döner (önce dışa aktarın).
+    """
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="Kendi hesabınızı silemezsiniz")
     repo = UserRepository(db)
     user = repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
-    repo.delete(user)
-    return {"success": True, "message": "Kullanıcı silindi"}
+    if force:
+        repo.hard_delete(user)
+        return {"success": True, "message": "Kullanıcı kalıcı olarak silindi"}
+    repo.deactivate(user)
+    return {"success": True, "message": "Kullanıcı pasifleştirildi (soft delete)"}

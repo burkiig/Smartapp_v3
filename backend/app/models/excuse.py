@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database.connection import Base
@@ -6,6 +6,13 @@ from app.database.connection import Base
 
 class Excuse(Base):
     __tablename__ = "excuses"
+    __table_args__ = (
+        # Aynı oturum için birden fazla mazeret engelleyen DB-level kısıtı.
+        # session_id NULL ise (oturum bağlantısız mazeret) kısıt devreye girmez;
+        # bu durum için uygulama katmanı (course_id + session_date) kombinasyonunu
+        # kontrol eder.
+        UniqueConstraint("student_id", "session_id", name="uq_excuse_student_session"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -24,3 +31,19 @@ class Excuse(Base):
     student = relationship("User", back_populates="excuses")
     course = relationship("Course")
     session = relationship("AttendanceSession")
+
+    @property
+    def student_name(self) -> str | None:
+        return self.student.name if self.student else None
+
+    @property
+    def student_number(self) -> str | None:
+        return self.student.student_number if self.student else None
+
+    @property
+    def course_code(self) -> str | None:
+        return self.course.code if self.course else None
+
+    @property
+    def course_name(self) -> str | None:
+        return self.course.name if self.course else None

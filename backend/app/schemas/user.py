@@ -24,10 +24,21 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
+    role: Optional[str] = None
     department: Optional[str] = None
     student_number: Optional[str] = None
     push_token: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v):
+        if v is None:
+            return v
+        allowed = {"admin", "instructor", "student"}
+        if v not in allowed:
+            raise ValueError(f"role must be one of {allowed}")
+        return v
 
 
 class UserResponse(BaseModel):

@@ -209,10 +209,12 @@ def schedule_session_reminder_jobs(scheduler, db_factory) -> None:
 
                 # Notify 5 minutes before
                 if class_minutes - current_minutes == 5:
-                    instructor = db.query(User).filter(User.id == course.instructor_id).first()
-                    if instructor and instructor.push_token:
+                    from app.repositories.course_repo import CourseRepository
+                    instructors = CourseRepository(db).get_instructors_for_course(course.id)
+                    push_tokens = [i.push_token for i in instructors if i.push_token]
+                    if push_tokens:
                         send_expo_push(
-                            tokens=[instructor.push_token],
+                            tokens=push_tokens,
                             title="Ders Başlamak Üzere",
                             body=f"{course.code} dersi 5 dakika sonra başlıyor. Oturumu başlatın!",
                             data={"type": "session_reminder", "course_id": course.id},

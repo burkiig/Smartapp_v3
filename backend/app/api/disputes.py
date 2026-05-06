@@ -129,12 +129,13 @@ def _notify_instructor_dispute_submitted(
         from app.services.notification_service import create_notification
         from app.utils.push import send_expo_push
 
-        course = CourseRepository(db).get_by_id(dispute.course_id)
-        if not course or not course.instructor_id:
+        course_repo = CourseRepository(db)
+        course = course_repo.get_by_id(dispute.course_id)
+        if not course:
             return
 
-        instructor = db.query(User).filter(User.id == course.instructor_id).first()
-        if not instructor:
+        instructors = course_repo.get_instructors_for_course(dispute.course_id)
+        if not instructors:
             return
 
         course_code = course.code
@@ -148,25 +149,25 @@ def _notify_instructor_dispute_submitted(
             "course_id": dispute.course_id,
         }
 
-        notif = create_notification(
-            db=db,
-            user_id=instructor.id,
-            type=notif_type,
-            title=title,
-            body=body,
-            data=notif_data,
-        )
-
-        if instructor.push_token:
-            send_expo_push(
-                tokens=[instructor.push_token],
+        for instructor in instructors:
+            notif = create_notification(
+                db=db,
+                user_id=instructor.id,
+                type=notif_type,
                 title=title,
                 body=body,
-                data={
-                    **notif_data,
-                    "notificationId": notif.id if notif else None,
-                },
+                data=notif_data,
             )
+            if instructor.push_token:
+                send_expo_push(
+                    tokens=[instructor.push_token],
+                    title=title,
+                    body=body,
+                    data={
+                        **notif_data,
+                        "notificationId": notif.id if notif else None,
+                    },
+                )
     except Exception as exc:
         logger.warning(
             "_notify_instructor_dispute_submitted failed (non-critical): %s", exc

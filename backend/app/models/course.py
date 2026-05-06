@@ -14,14 +14,30 @@ class Course(Base):
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
+    # Primary instructor — geriye dönük uyumluluk + bildirim kısayolu.
+    # Yetkilendirme için course_instructors join tablosunu kullanın.
     instructor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     # JSON: {"days": ["Monday","Wednesday"], "start_time": "09:00", "end_time": "10:30"}
     schedule = Column(JSON, nullable=True)
     # Session template: default duration in minutes for sessions of this course
     default_duration_minutes = Column(Integer, nullable=True)
+    # Paralel ders desteği: aynı shared_class_id'ye sahip dersler ortak sınıfta işlenir.
+    # NULL → bağımsız ders. Değer atanırsa bu ders bir paralel grubun üyesidir.
+    shared_class_id = Column(Integer, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
 
     instructor = relationship("User", foreign_keys=[instructor_id])
+    # Many-to-many: tüm atanmış öğretmenler
+    course_instructors = relationship(
+        "CourseInstructor", back_populates="course", cascade="all, delete-orphan"
+    )
+    instructors = relationship(
+        "User",
+        secondary="course_instructors",
+        primaryjoin="Course.id == CourseInstructor.course_id",
+        secondaryjoin="User.id == CourseInstructor.instructor_id",
+        viewonly=True,
+    )
     enrollments = relationship("Enrollment", back_populates="course")
     sessions = relationship("AttendanceSession", back_populates="course")
 

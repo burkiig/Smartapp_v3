@@ -418,3 +418,41 @@
 }
 .session-toggle { color: #64748b; }
 .session-records-table { margin: 0; border-radius: 0; border: none; border-top: 1px solid #e2e8f0; }
+
+/* Override buttons */
+.override-btns {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.override-btn {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #e2e8f0;
+}
+
+.override-btn:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.override-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.override-btn-present.active  { background: #d1fae5; color: #059669; border-color: #6ee7b7; }
+.override-btn-absent.active   { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+.override-btn-excused.active  { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+
+.override-btn-present:not(.active):hover:not(:disabled) { background: #d1fae5; color: #059669; border-color: #6ee7b7; }
+.override-btn-absent:not(.active):hover:not(:disabled)  { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+.override-btn-excused:not(.active):hover:not(:disabled) { background: #fef3c7; color: #d97706; border-color: #fcd34d; }

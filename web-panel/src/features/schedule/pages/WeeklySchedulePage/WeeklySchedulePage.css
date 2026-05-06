@@ -10,37 +10,6 @@
   margin-bottom: 32px;
 }
 
-.header-right {
-  display: flex;
-  gap: 12px;
-}
-
-.nav-btn, .today-btn {
-  padding: 10px 20px;
-  border: 1px solid #d1d1d6;
-  border-radius: 8px;
-  background: white;
-  color: #1d1d1f;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.nav-btn:hover, .today-btn:hover {
-  background: #f5f5f7;
-  border-color: #0071e3;
-}
-
-.today-btn {
-  background: #0071e3;
-  color: white;
-  border-color: #0071e3;
-}
-
-.today-btn:hover {
-  background: #0077ed;
-}
 
 /* Schedule Grid */
 .schedule-container {
@@ -105,12 +74,15 @@
 .day-name {
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 4px;
 }
 
-.day-date {
-  font-size: 12px;
-  opacity: 0.8;
+.today-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-top: 4px;
 }
 
 .day-slots {
@@ -159,6 +131,16 @@
   font-size: 12px;
   opacity: 0.8;
   margin-top: auto;
+}
+
+.class-instructors {
+  font-size: 11px;
+  opacity: 0.85;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* Legend */

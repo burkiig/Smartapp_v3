@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl, Alert, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,31 +16,55 @@ export default function InstructorHome() {
   const { user } = useUser();
   const userName = user?.name || user?.username || '';
 
-  const [stats,    setStats]    = useState(null);
-  const [today,    setToday]    = useState([]);
-  const [flagged,  setFlagged]  = useState(0);
-  const [loading,  setLoading]  = useState(true);
-  const [refresh,  setRefresh]  = useState(false);
-  const [starting, setStarting] = useState(null);
+  const [stats,          setStats]          = useState(null);
+  const [today,          setToday]          = useState([]);
+  const [allCourses,     setAllCourses]     = useState([]);
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [flagged,        setFlagged]        = useState(0);
+  const [loading,        setLoading]        = useState(true);
+  const [refresh,        setRefresh]        = useState(false);
+  const [starting,       setStarting]       = useState(null);
+
+  // Nabız animasyonu (CANLI banner)
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, c, f] = await Promise.allSettled([
+      const [s, c, f, act] = await Promise.allSettled([
         dashboard.stats(),
         courses.list(),
         attendance.getFlagged(),
+        sessions.list({ status: 'active' }),
       ]);
       if (s.status === 'fulfilled') setStats(s.value);
       if (c.status === 'fulfilled') {
+        const list = c.value || [];
+        setAllCourses(list);
         const dayEN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
-        setToday((c.value || []).filter(course => {
+        setToday(list.filter(course => {
           try {
             const sch = typeof course.schedule === 'string' ? JSON.parse(course.schedule) : course.schedule;
-            return sch?.days?.includes(dayEN);
+            if (sch?.days?.includes(dayEN)) return true;
+            if (Array.isArray(sch?.slots)) return sch.slots.some(sl => sl.day === dayEN);
+            return false;
           } catch { return false; }
         }));
       }
       if (f.status === 'fulfilled') setFlagged((f.value || []).filter(r => r.is_flagged).length);
+      if (act.status === 'fulfilled') {
+        const raw = act.value;
+        setActiveSessions(Array.isArray(raw) ? raw : (raw?.items || raw?.sessions || []));
+      }
     } catch {}
     finally { setLoading(false); setRefresh(false); }
   }, []);
@@ -73,6 +97,11 @@ export default function InstructorHome() {
     { label: 'Bayraklı',        value: stats?.flagged_records ?? '—', icon: 'flag-outline',          color: Colors.error   },
   ];
 
+  // Aktif oturumun ders bilgisini bul
+  const liveSession  = activeSessions[0] ?? null;
+  const liveCourse   = liveSession ? allCourses.find(c => c.id === liveSession.course_id) : null;
+  const nextCourse   = today[0] ?? null;
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
@@ -102,6 +131,64 @@ export default function InstructorHome() {
           <View style={styles.centered}><ActivityIndicator size="large" color={Colors.primary} /></View>
         ) : (
           <>
+            {/* Dinamik durum kartı */}
+            {liveSession ? (
+              /* ── CANLI YOKLAMA ── */
+              <LinearGradient colors={['#DC2626', '#B91C1C']} style={styles.statusCard}>
+                <View style={styles.statusCardHeader}>
+                  <View style={styles.liveRow}>
+                    <Animated.View style={[styles.livePulse, { opacity: pulseAnim }]} />
+                    <Text style={styles.statusCardBadge}>CANLI YOKLAMA</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.statusCardBtn}
+                    onPress={() => router.push({ pathname: '/class-details', params: { courseId: liveSession.course_id, code: liveCourse?.code ?? '', title: liveCourse?.name ?? '' } })}
+                  >
+                    <Text style={styles.statusCardBtnText}>Yönet</Text>
+                    <Ionicons name="arrow-forward" size={13} color="#DC2626" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.statusCardCode}>{liveCourse?.code ?? `Ders #${liveSession.course_id}`}</Text>
+                <Text style={styles.statusCardName} numberOfLines={1}>{liveCourse?.name ?? 'Aktif oturum'}</Text>
+                <View style={styles.statusCardMeta}>
+                  <Ionicons name="people-outline" size={13} color="rgba(255,255,255,0.75)" />
+                  <Text style={styles.statusCardMetaText}>{liveCourse?.enrolled_count ?? 0} öğrenci kayıtlı</Text>
+                  {activeSessions.length > 1 && (
+                    <>
+                      <Text style={styles.statusCardMetaDot}>·</Text>
+                      <Text style={styles.statusCardMetaText}>+{activeSessions.length - 1} aktif daha</Text>
+                    </>
+                  )}
+                </View>
+              </LinearGradient>
+            ) : nextCourse ? (
+              /* ── SIRADAKİ DERS ── */
+              <LinearGradient colors={['#1E3A8A', '#2563EB']} style={styles.statusCard}>
+                <View style={styles.statusCardHeader}>
+                  <View style={styles.liveRow}>
+                    <Ionicons name="alarm-outline" size={14} color="rgba(255,255,255,0.8)" />
+                    <Text style={styles.statusCardBadge}>SIRADAKİ DERSİNİZ</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.statusCardBtn}
+                    onPress={() => router.push('/(tabs)/schedule')}
+                  >
+                    <Text style={styles.statusCardBtnText}>Programa Git</Text>
+                    <Ionicons name="arrow-forward" size={13} color="#2563EB" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.statusCardCode}>{nextCourse.code}</Text>
+                <Text style={styles.statusCardName} numberOfLines={1}>{nextCourse.name}</Text>
+                <View style={styles.statusCardMeta}>
+                  <Ionicons name="time-outline" size={13} color="rgba(255,255,255,0.75)" />
+                  <Text style={styles.statusCardMetaText}>{getTime(nextCourse.schedule)}</Text>
+                  <Text style={styles.statusCardMetaDot}>·</Text>
+                  <Ionicons name="people-outline" size={13} color="rgba(255,255,255,0.75)" />
+                  <Text style={styles.statusCardMetaText}>{nextCourse.enrolled_count ?? 0} öğrenci</Text>
+                </View>
+              </LinearGradient>
+            ) : null}
+
             {/* Stats grid */}
             <View style={styles.statsGrid}>
               {STATS.map(s => (
@@ -222,6 +309,19 @@ const styles = StyleSheet.create({
   notifBtn:   { width: 42, height: 42, borderRadius: 12, backgroundColor: Colors.bgAlt, alignItems: 'center', justifyContent: 'center' },
   notifDot:   { position: 'absolute', top: 6, right: 6, backgroundColor: Colors.error, borderRadius: 9, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderWidth: 1.5, borderColor: Colors.card },
   notifCount: { fontSize: 9, fontWeight: '800', color: '#fff' },
+
+  statusCard:         { marginHorizontal: 16, marginTop: 16, marginBottom: 4, borderRadius: 18, padding: 18, ...Shadows.primary },
+  statusCardHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  liveRow:            { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  livePulse:          { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
+  statusCardBadge:    { fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: 0.6 },
+  statusCardBtn:      { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  statusCardBtnText:  { fontSize: 12, fontWeight: '700', color: Colors.text },
+  statusCardCode:     { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.4, marginBottom: 2 },
+  statusCardName:     { fontSize: 13, color: 'rgba(255,255,255,0.85)', marginBottom: 12 },
+  statusCardMeta:     { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  statusCardMetaText: { fontSize: 12, color: 'rgba(255,255,255,0.75)' },
+  statusCardMetaDot:  { fontSize: 12, color: 'rgba(255,255,255,0.4)' },
 
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 10 },
   statCard:  { flex: 1, minWidth: '47%', backgroundColor: Colors.card, borderRadius: 14, padding: 14, ...Shadows.xs },

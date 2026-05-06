@@ -19,6 +19,7 @@ from app.repositories.course_repo import CourseRepository, EnrollmentRepository
 from app.repositories.session_repo import SessionRepository
 from app.services.audit_service import log_action
 from app.services.face_service import FaceService
+from app.utils.gps_retry import increment_fake_gps_counter, reset_fake_gps_counter
 from app.utils.location import check_gps_plausibility, verify_location
 from app.utils.push import send_expo_push
 
@@ -72,10 +73,24 @@ class AttendancePipelineService:
                     detail="QR kodunun süresi dolmuş. Lütfen yeni kodu taratın.",
                 )
 
-        # Enrollment check
+        # Enrollment check — paralel ders desteği:
+        # Öğrenci, oturumun açıldığı derse ya da aynı shared_class_id'deki
+        # herhangi bir paralel derse kayıtlıysa yoklama yapabilir.
         enrollment = self.enrollment_repo.get(student.id, session.course_id)
         if not enrollment:
-            raise HTTPException(status_code=403, detail="Bu derse kayıtlı değilsiniz")
+            course_repo = CourseRepository(self.db)
+            course = course_repo.get_by_id(session.course_id)
+            if course and course.shared_class_id is not None:
+                parallel_ids = {
+                    c.id for c in course_repo.get_parallel_courses(course.shared_class_id)
+                }
+                enrolled_in_parallel = any(
+                    self.enrollment_repo.get(student.id, cid) for cid in parallel_ids
+                )
+                if not enrolled_in_parallel:
+                    raise HTTPException(status_code=403, detail="Bu derse kayıtlı değilsiniz")
+            else:
+                raise HTTPException(status_code=403, detail="Bu derse kayıtlı değilsiniz")
 
         # Duplicate final record check
         existing_final = self.final_repo.get_by_student_session(student.id, session_id)
@@ -217,6 +232,31 @@ class AttendancePipelineService:
         is_flagged = False
 
         if fake_gps_detected:
+            # ── Retry counter: eşiğe ulaşmadan kayıt oluşturma ──────────────
+            max_attempts = 3
+            try:
+                from app.api.admin_settings import get_setting_value
+                val = get_setting_value(self.db, "fake_gps_max_attempts")
+                if val:
+                    max_attempts = int(val)
+            except Exception:
+                pass
+
+            attempt_count = increment_fake_gps_counter(student.id, session_id)
+
+            if attempt_count < max_attempts:
+                # Henüz eşiğe ulaşmadı — location_status'u pending'e çek
+                # böylece öğrenci gerçek GPS ile tekrar deneyebilir
+                self.attempt_repo.update(attempt, location_status="pending")
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Sahte GPS tespit edildi. Lütfen konum simülatörünü kapatıp "
+                        f"tekrar deneyin. ({attempt_count}/{max_attempts})"
+                    ),
+                )
+
+            # Eşiğe ulaşıldı — kayıt oluştur + öğretmeni bildir
             flag_reason = "fake_gps_detected"
             is_flagged = True
         elif suspicious_accuracy:
@@ -258,6 +298,10 @@ class AttendancePipelineService:
             verification_steps=verification_steps,
             status=record_status,
         )
+
+        # Başarılı kayıt (veya eşik aşıldı ve kaydedildi) → retry sayacını sıfırla
+        reset_fake_gps_counter(student.id, session_id)
+
         log_action(
             self.db,
             "attendance_marked",
@@ -299,8 +343,11 @@ class AttendancePipelineService:
         instructor_id: Optional[int] = None,
     ) -> dict:
         session = self.session_repo.get_by_id(session_id)
-        if not session or session.status != "active":
-            raise HTTPException(status_code=404, detail="Aktif oturum bulunamadı")
+        if not session:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        if session.status == "cancelled":
+            raise HTTPException(status_code=400, detail="İptal edilmiş oturum için yoklama kaydedilemez")
+        # active ve closed oturumlara manuel yoklama izin verilir
 
         # Instructor scope check — instructor can only mark for their own courses
         if instructor_id is not None:
@@ -538,33 +585,34 @@ class AttendancePipelineService:
                 "student_id": student.id,
             }
 
-            # ── Instructor: DB notification first, then push with notificationId ─
-            if session.course and session.course.instructor:
-                instructor = session.course.instructor
+            # ── Tüm öğretmenlere: DB notification + push ─────────────────────
+            if session.course:
+                from app.repositories.course_repo import CourseRepository
+                instructors = CourseRepository(self.db).get_instructors_for_course(
+                    session.course_id
+                )
                 instructor_title = "⚠️ Şüpheli Yoklama"
                 instructor_body = f"{course_code} — {student.name}: {label}"
-
-                # Create DB row first so we get its ID for the push payload.
-                instr_notif = create_notification(
-                    db=self.db,
-                    user_id=instructor.id,
-                    type="flagged_attendance",
-                    title=instructor_title,
-                    body=instructor_body,
-                    data=notif_data,
-                )
-                if instructor.push_token:
-                    push_data = {
-                        **notif_data,
-                        # Mobile app reads this to PATCH /notifications/{id}/read on tap.
-                        "notificationId": instr_notif.id if instr_notif else None,
-                    }
-                    send_expo_push(
-                        tokens=[instructor.push_token],
+                for instructor in instructors:
+                    instr_notif = create_notification(
+                        db=self.db,
+                        user_id=instructor.id,
+                        type="flagged_attendance",
                         title=instructor_title,
                         body=instructor_body,
-                        data=push_data,
+                        data=notif_data,
                     )
+                    if instructor.push_token:
+                        push_data = {
+                            **notif_data,
+                            "notificationId": instr_notif.id if instr_notif else None,
+                        }
+                        send_expo_push(
+                            tokens=[instructor.push_token],
+                            title=instructor_title,
+                            body=instructor_body,
+                            data=push_data,
+                        )
 
             # ── Student: DB notification (no push — they initiated the flow) ─
             create_notification(

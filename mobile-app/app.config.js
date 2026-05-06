@@ -13,16 +13,26 @@ export default {
     assetBundlePatterns: [
       "**/*"
     ],
-    ios: {
-      supportsTablet: true,
-      bundleIdentifier: "com.smartattendance.app"
-    },
     android: {
       package: "com.smartattendance.app",
+      googleServicesFile: "./google-services.json",
       permissions: [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
       ]
+    },
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: "com.smartattendance.app",
+      infoPlist: {
+        NSLocationWhenInUseUsageDescription: "Yoklama doğrulaması için konum bilginize ihtiyaç var.",
+        NSLocationAlwaysUsageDescription: "Yoklama doğrulaması için konum bilginize ihtiyaç var."
+      }
     },
     web: {},
     plugins: [
@@ -30,6 +40,22 @@ export default {
         "expo-camera",
         {
           cameraPermission: "Allow Smart Attendance to access your camera for Face ID and QR code scanning."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/notification-icon.png",
+          color: "#2563EB",
+          defaultChannel: "default",
+          androidMode: "default",
+          androidCollapsedTitle: "Smart Attendance"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          locationAlwaysAndWhenInUsePermission: "Yoklama doğrulaması için konumunuza erişmemiz gerekiyor."
         }
       ],
       "expo-router"

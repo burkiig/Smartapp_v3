@@ -1,31 +1,45 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MdCheckCircle, MdCancel, MdRefresh, MdSelectAll } from 'react-icons/md';
+import { MdCheckCircle, MdCancel, MdRefresh, MdSelectAll, MdDescription } from 'react-icons/md';
+import {
+  fetchExcuseRecords,
+  approveExcuse,
+  rejectExcuse,
+} from '../../services/excuseService';
+import { ExcuseDetailsModal } from '../../components/ExcuseDetailsModal/ExcuseDetailsModal';
 import apiClient from '../../../../shared/services/apiClient';
 import './ExcusesPage.css';
 
-const STATUS_TR = { pending: 'Bekliyor', approved: 'Onaylandı', rejected: 'Reddedildi' };
+const STATUS_TR  = { pending: 'Bekliyor', approved: 'Onaylandı', rejected: 'Reddedildi' };
 const STATUS_CLS = { pending: 'badge-pending', approved: 'badge-approved', rejected: 'badge-rejected' };
-const TYPE_TR = { medical: 'Sağlık', family: 'Aile', other: 'Diğer' };
+const TYPE_TR    = {
+  medical: 'Sağlık', family: 'Aile', school_activity: 'Okul Etkinliği',
+  transportation: 'Ulaşım', other: 'Diğer',
+};
 
 export const ExcusesPage = () => {
-  const [excuses, setExcuses] = useState([]);
-  const [courses, setCourses] = useState([]);
+  const [excuses,      setExcuses]      = useState([]);
+  const [courses,      setCourses]      = useState([]);
   const [courseFilter, setCourseFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [selected, setSelected] = useState(new Set());
-  const [loading, setLoading] = useState(true);
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [selected,     setSelected]     = useState(new Set());
+  const [loading,      setLoading]      = useState(true);
+  const [bulkLoading,  setBulkLoading]  = useState(false);
+  const [message,      setMessage]      = useState('');
+  const [selectedExcuse, setSelectedExcuse] = useState(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [excRes, crsRes] = await Promise.allSettled([
-        apiClient.get('/excuses/'),
+        fetchExcuseRecords(),
         apiClient.get('/courses/'),
       ]);
-      if (excRes.status === 'fulfilled') setExcuses(excRes.value || []);
-      if (crsRes.status === 'fulfilled') setCourses(crsRes.value || []);
+      if (excRes.status === 'fulfilled' && excRes.value.success) {
+        setExcuses(excRes.value.data || []);
+      }
+      if (crsRes.status === 'fulfilled') {
+        setCourses(crsRes.value || []);
+      }
     } finally {
       setLoading(false);
     }
@@ -48,11 +62,11 @@ export const ExcusesPage = () => {
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === filtered.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filtered.map(e => e.id)));
-    }
+    setSelected(
+      selected.size === filtered.length
+        ? new Set()
+        : new Set(filtered.map(e => e.id))
+    );
   };
 
   const bulkAction = async (status) => {
@@ -63,7 +77,10 @@ export const ExcusesPage = () => {
         ids: Array.from(selected),
         status,
       });
-      setMessage(`${res.updated} mazeret ${status === 'approved' ? 'onaylandı' : 'reddedildi'}.${res.skipped > 0 ? ` ${res.skipped} atlandı.` : ''}`);
+      setMessage(
+        `${res.updated} mazeret ${status === 'approved' ? 'onaylandı' : 'reddedildi'}.` +
+        (res.skipped > 0 ? ` ${res.skipped} atlandı.` : '')
+      );
       setSelected(new Set());
       loadData();
     } catch (err) {
@@ -76,10 +93,28 @@ export const ExcusesPage = () => {
   const singleAction = async (id, status) => {
     try {
       await apiClient.patch(`/excuses/${id}`, { status });
-      loadData();
+      setExcuses(prev => prev.map(e => e.id === id ? { ...e, status } : e));
     } catch (err) {
       setMessage(err.message || 'İşlem başarısız');
     }
+  };
+
+  const handleModalApprove = async (excuseId) => {
+    const result = await approveExcuse(excuseId);
+    if (result.success) {
+      setExcuses(prev => prev.map(e => e.id === excuseId ? { ...e, status: 'approved' } : e));
+    }
+    return result;
+  };
+
+  const handleModalReject = async (excuseId, reason) => {
+    const result = await rejectExcuse(excuseId, reason);
+    if (result.success) {
+      setExcuses(prev =>
+        prev.map(e => e.id === excuseId ? { ...e, status: 'rejected', instructorNotes: reason } : e)
+      );
+    }
+    return result;
   };
 
   return (
@@ -89,7 +124,9 @@ export const ExcusesPage = () => {
           <h1 className="page-title">Mazeret Yönetimi</h1>
           <p className="page-subtitle">Öğrenci mazeretlerini onaylayın veya reddedin</p>
         </div>
-        <button className="refresh-btn" onClick={loadData}><MdRefresh size={16} style={{ marginRight: 5 }} />Yenile</button>
+        <button className="refresh-btn" onClick={loadData}>
+          <MdRefresh size={16} style={{ marginRight: 5 }} />Yenile
+        </button>
       </div>
 
       {message && <div className="excuses-message">{message}</div>}
@@ -98,7 +135,9 @@ export const ExcusesPage = () => {
       <div className="excuses-filters">
         <select value={courseFilter} onChange={e => setCourseFilter(e.target.value)} className="filter-select">
           <option value="">Tüm Dersler</option>
-          {courses.map(c => <option key={c.id} value={String(c.id)}>{c.code} — {c.name}</option>)}
+          {courses.map(c => (
+            <option key={c.id} value={String(c.id)}>{c.code} — {c.name}</option>
+          ))}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="filter-select">
           <option value="">Tüm Durumlar</option>
@@ -150,13 +189,17 @@ export const ExcusesPage = () => {
                 <th>Tarih</th>
                 <th>Tür</th>
                 <th>Açıklama</th>
+                <th>Belge</th>
                 <th>Durum</th>
                 <th>İşlem</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(e => (
-                <tr key={e.id} className={selected.has(e.id) ? 'row-selected' : ''}>
+                <tr
+                  key={e.id}
+                  className={selected.has(e.id) ? 'row-selected' : ''}
+                >
                   <td>
                     <input
                       type="checkbox"
@@ -164,35 +207,74 @@ export const ExcusesPage = () => {
                       onChange={() => toggleSelect(e.id)}
                     />
                   </td>
-                  <td>Öğrenci #{e.student_id}</td>
                   <td>
-                    {courses.find(c => c.id === e.course_id)?.code || `#${e.course_id}`}
+                    <div className="student-cell">
+                      <span className="student-name">{e.studentName}</span>
+                      {e.student_number && (
+                        <span className="student-number">No: {e.student_number}</span>
+                      )}
+                    </div>
                   </td>
-                  <td>{e.session_date}</td>
-                  <td>{TYPE_TR[e.excuse_type] || e.excuse_type}</td>
+                  <td>
+                    <span className="course-code">{e.courseTitle}</span>
+                  </td>
+                  <td>{e.classDate}</td>
+                  <td>{TYPE_TR[e.excuseType] || e.excuseType}</td>
                   <td className="desc-cell">{e.description || '—'}</td>
+                  <td>
+                    {e.hasDocument ? (
+                      <button
+                        className="doc-icon-btn"
+                        title="Belgeyi görüntüle"
+                        onClick={() => setSelectedExcuse(e)}
+                      >
+                        <MdDescription size={18} />
+                        <span>Belge Var</span>
+                      </button>
+                    ) : (
+                      <span className="no-doc">—</span>
+                    )}
+                  </td>
                   <td>
                     <span className={`excuse-badge ${STATUS_CLS[e.status] || ''}`}>
                       {STATUS_TR[e.status] || e.status}
                     </span>
                   </td>
                   <td>
-                    {e.status === 'pending' && (
-                      <div className="action-btns">
-                        <button className="act-btn approve" onClick={() => singleAction(e.id, 'approved')}>
-                          Onayla
-                        </button>
-                        <button className="act-btn reject" onClick={() => singleAction(e.id, 'rejected')}>
-                          Reddet
-                        </button>
-                      </div>
-                    )}
+                    <div className="action-btns">
+                      <button
+                        className="act-btn detail"
+                        onClick={() => setSelectedExcuse(e)}
+                        title="Detayları gör"
+                      >
+                        Detay
+                      </button>
+                      {e.status === 'pending' && (
+                        <>
+                          <button className="act-btn approve" onClick={() => singleAction(e.id, 'approved')}>
+                            Onayla
+                          </button>
+                          <button className="act-btn reject" onClick={() => singleAction(e.id, 'rejected')}>
+                            Reddet
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedExcuse && (
+        <ExcuseDetailsModal
+          excuse={selectedExcuse}
+          onClose={() => setSelectedExcuse(null)}
+          onApprove={handleModalApprove}
+          onReject={handleModalReject}
+        />
       )}
     </div>
   );

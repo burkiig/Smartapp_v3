@@ -10,19 +10,32 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const init = async () => {
-      // Verify session by hitting /auth/me — the httpOnly access_token cookie
-      // is sent automatically. No localStorage token to read.
       const profile = await getMe();
       if (profile) {
         setUser(profile);
         localStorage.setItem('user', JSON.stringify(profile));
       } else {
+        setUser(null);
         localStorage.removeItem('user');
       }
       setIsLoading(false);
     };
     init();
   }, []);
+
+  // Oturum sona erdiğinde (cookie expire) kullanıcı aktif olmasa bile UI temizlenir.
+  // Her 5 dakikada bir /auth/me çağrısı yapılır; başarısız olursa logout.
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(async () => {
+      const profile = await getMe();
+      if (!profile) {
+        setUser(null);
+        localStorage.removeItem('user');
+      }
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const login = async (loginIdentifier, password) => {
     setError('');

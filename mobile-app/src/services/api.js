@@ -107,13 +107,21 @@ export const attendance = {
   getFlagged: () =>
     apiAdapter.get('/attendance/flagged'),
 
-  /** PATCH /api/v1/attendance/<id>/review */
+  /** PATCH /api/v1/attendance/<id>/review — legacy, kept for compat */
   review: (recordId, isFlagged, flagReason, status) =>
     apiAdapter.patch(`/attendance/${recordId}/review`, {
       is_flagged: isFlagged,
       flag_reason: flagReason,
       status,
     }),
+
+  /** PATCH /api/v1/attendance/<id>/override — instructor/admin override */
+  override: (recordId, status, note = '') =>
+    apiAdapter.patch(`/attendance/${recordId}/override`, { status, note }),
+
+  /** PUT /api/v1/attendance/set-status — upsert: kayıt yoksa oluştur, varsa güncelle */
+  setStatus: (sessionId, studentId, status, note = '') =>
+    apiAdapter.put('/attendance/set-status', { session_id: sessionId, student_id: studentId, status, note }),
 };
 
 // ==================== FACE ====================
@@ -196,6 +204,10 @@ export const excuses = {
   /** GET /api/v1/excuses/<id>/document — returns time-limited signed URL */
   getDocumentUrl: (excuseId, expiresIn = 3600) =>
     apiAdapter.get(`/excuses/${excuseId}/document?expires_in=${expiresIn}`),
+
+  /** POST /api/v1/excuses/upload?excuse_id=<id> — multipart/form-data file upload */
+  uploadDocument: (excuseId, fileUri, fileName, mimeType) =>
+    apiAdapter.uploadFile(`/excuses/upload?excuse_id=${excuseId}`, fileUri, fileName, mimeType),
 
   /** PATCH /api/v1/excuses/<id> */
   review: (excuseId, status, notes = '') =>

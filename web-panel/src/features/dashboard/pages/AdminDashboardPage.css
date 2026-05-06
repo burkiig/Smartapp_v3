@@ -376,6 +376,57 @@
 }
 
 .modal-content.wide { max-width: 680px; }
+.modal-content-wide { max-width: 720px; }
+
+/* ── Instructor multi-select ─────────────────────────────────────── */
+.instructor-multi-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.instructor-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.instructor-option:hover { background: #e0f2fe; }
+.instructor-option.selected { background: #dbeafe; }
+.instructor-option input[type="checkbox"] { accent-color: #3b82f6; width: 16px; height: 16px; }
+
+.instructor-name { font-weight: 500; }
+.instructor-dept  { font-size: 12px; color: #64748b; margin-left: auto; }
+
+.instructor-count-badge {
+  display: inline-block;
+  margin-left: 8px;
+  background: #3b82f6;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+/* ── Course card parallel badge ──────────────────────────────────── */
+.course-parallel-badge {
+  color: #7c3aed;
+  font-weight: 600;
+  font-size: 12px;
+}
 
 .modal-header {
   display: flex;

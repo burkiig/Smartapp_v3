@@ -112,7 +112,38 @@ class FinalAttendanceResponse(BaseModel):
 class ManualAttendanceRequest(BaseModel):
     session_id: int
     student_id: int
-    image_base64: str
+    image_base64: Optional[str] = None  # kapalı oturumda opsiyonel
+
+
+class OverrideAttendanceRequest(BaseModel):
+    status: str  # present | absent | excused
+    note: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def status_must_be_valid(cls, v):
+        allowed = {"present", "absent", "excused"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
+
+
+class SetAttendanceStatusRequest(BaseModel):
+    """Öğretmen → öğrenci + oturum çifti için durum belirle.
+    Kayıt yoksa oluşturur, varsa günceller (upsert).
+    """
+    session_id: int
+    student_id: int
+    status: str  # present | absent | excused
+    note: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def status_must_be_valid(cls, v):
+        allowed = {"present", "absent", "excused"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
 
 
 class ReviewAttendanceRequest(BaseModel):

@@ -10,6 +10,7 @@ from app.schemas.attendance import (
     AttendanceAttemptResponse, FinalAttendanceResponse,
     ManualAttendanceRequest, ReviewAttendanceRequest,
     WebAttendanceRequest, WebAttendanceResponse,
+    OverrideAttendanceRequest, SetAttendanceStatusRequest,
 )
 from app.services.attendance_service import AttendancePipelineService
 from app.services.audit_service import log_action
@@ -427,6 +428,154 @@ def export_attendance(
                 **_meta_headers,
             },
         )
+
+
+@router.patch("/{record_id}/override")
+def override_attendance(
+    record_id: int,
+    data: OverrideAttendanceRequest,
+    current_user: User = Depends(require_instructor),
+    db: Session = Depends(get_db),
+):
+    """Öğretmen/admin yoklama durumunu doğrudan override eder.
+    Oturum açık veya kapalı olsun çalışır.
+    status: present | absent | excused
+    """
+    record = db.query(FinalAttendanceRecord).filter(
+        FinalAttendanceRecord.id == record_id
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Kayıt bulunamadı")
+
+    if current_user.role != "admin":
+        from app.repositories.course_repo import CourseRepository
+        my_course_ids = {c.id for c in CourseRepository(db).get_by_instructor(current_user.id)}
+        if record.course_id not in my_course_ids:
+            raise HTTPException(status_code=403, detail="Bu kayıt üzerinde yetkiniz yok")
+
+    old_status = record.status
+    repo = FinalAttendanceRepository(db)
+    update_kwargs: dict = {
+        "status": data.status,
+        "is_flagged": False,
+        "flag_reason": None,
+    }
+    if data.note:
+        existing_steps = record.verification_steps or {}
+        existing_steps["instructor_override_note"] = data.note
+        existing_steps["instructor_override_by"] = current_user.id
+        update_kwargs["verification_steps"] = existing_steps
+
+    updated = repo.update(record, **update_kwargs)
+    log_action(
+        db, "attendance_overridden",
+        actor_id=current_user.id, actor_role=current_user.role,
+        resource="final_attendance_record", resource_id=record_id,
+        detail={
+            "old_status": old_status,
+            "new_status": data.status,
+            "note": data.note,
+        },
+    )
+    return {
+        "id": updated.id,
+        "student_id": updated.student_id,
+        "session_id": updated.session_id,
+        "course_id": updated.course_id,
+        "status": updated.status,
+        "is_flagged": updated.is_flagged,
+        "flag_reason": updated.flag_reason,
+        "verification_steps": updated.verification_steps,
+        "marked_at": updated.marked_at.isoformat() if updated.marked_at else None,
+    }
+
+
+@router.put("/set-status")
+def set_attendance_status(
+    data: SetAttendanceStatusRequest,
+    current_user: User = Depends(require_instructor),
+    db: Session = Depends(get_db),
+):
+    """Upsert: öğrenci + oturum için yoklama durumunu belirle.
+    Kayıt yoksa yeni oluşturur, varsa günceller.
+    Öğretmenler yalnızca kendi derslerine ait oturumlar için kullanabilir.
+    """
+    from app.models.session import AttendanceSession
+    from app.models.attendance import FinalAttendanceRecord
+    from datetime import datetime
+
+    session = db.query(AttendanceSession).filter(
+        AttendanceSession.id == data.session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+    if session.status == "cancelled":
+        raise HTTPException(status_code=400, detail="İptal edilmiş oturuma yoklama kaydı eklenemez")
+
+    if current_user.role != "admin":
+        my_course_ids = {c.id for c in CourseRepository(db).get_by_instructor(current_user.id)}
+        if session.course_id not in my_course_ids:
+            raise HTTPException(status_code=403, detail="Bu oturum için yetkiniz yok")
+
+    record = db.query(FinalAttendanceRecord).filter(
+        FinalAttendanceRecord.student_id == data.student_id,
+        FinalAttendanceRecord.session_id == data.session_id,
+    ).first()
+
+    verification_steps: dict = {}
+    if data.note:
+        verification_steps["instructor_override_note"] = data.note
+        verification_steps["instructor_override_by"] = current_user.id
+
+    if record:
+        old_status = record.status
+        record.status = data.status
+        record.is_flagged = False
+        record.flag_reason = None
+        if verification_steps:
+            existing = record.verification_steps or {}
+            existing.update(verification_steps)
+            record.verification_steps = existing
+        db.commit()
+        db.refresh(record)
+        log_action(
+            db, "attendance_overridden",
+            actor_id=current_user.id, actor_role=current_user.role,
+            resource="final_attendance_record", resource_id=record.id,
+            detail={"old_status": old_status, "new_status": data.status, "note": data.note},
+        )
+    else:
+        record = FinalAttendanceRecord(
+            student_id=data.student_id,
+            session_id=data.session_id,
+            course_id=session.course_id,
+            status=data.status,
+            is_flagged=False,
+            flag_reason=None,
+            verification_steps=verification_steps if verification_steps else None,
+            marked_at=datetime.utcnow(),
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        log_action(
+            db, "attendance_created_by_instructor",
+            actor_id=current_user.id, actor_role=current_user.role,
+            resource="final_attendance_record", resource_id=record.id,
+            detail={"student_id": data.student_id, "status": data.status, "note": data.note},
+        )
+
+    return {
+        "id": record.id,
+        "student_id": record.student_id,
+        "session_id": record.session_id,
+        "course_id": record.course_id,
+        "status": record.status,
+        "is_flagged": record.is_flagged,
+        "flag_reason": record.flag_reason,
+        "verification_steps": record.verification_steps,
+        "marked_at": record.marked_at.isoformat() if record.marked_at else None,
+    }
 
 
 @router.patch("/{record_id}/review", response_model=FinalAttendanceResponse)

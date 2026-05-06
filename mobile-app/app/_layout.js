@@ -8,6 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { UserProvider, useUser } from '@/context/UserContext';
 import { isAuthenticated } from '@/services/authService';
 import InAppBanner from '@/components/InAppBanner';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import NetworkToast from '@/components/NetworkToast';
+import eventBus from '@/utils/eventBus';
 import {
   setupPushNotifications,
   addNotificationListeners,
@@ -62,6 +65,15 @@ function AuthGuard() {
     }
   }, [isLoggedIn, isLoading, isFaceVerified, routeGroup, role]);
 
+  return null;
+}
+
+function ForceLogoutManager() {
+  const { logout } = useUser();
+  useEffect(() => {
+    const unsub = eventBus.on('FORCE_LOGOUT', () => { logout(); });
+    return unsub;
+  }, [logout]);
   return null;
 }
 
@@ -327,7 +339,9 @@ function AppShell() {
     <>
       <AuthGuard />
       <TokenRefreshManager />
+      <ForceLogoutManager />
       <NotificationManager />
+      <NetworkToast />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen
           name="index"
@@ -344,10 +358,12 @@ function AppShell() {
 
 export default function RootLayout() {
   return (
-    <UserProvider>
-      <StatusBar style="light" />
-      <AppShell />
-    </UserProvider>
+    <ErrorBoundary>
+      <UserProvider>
+        <StatusBar style="light" />
+        <AppShell />
+      </UserProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -101,8 +101,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'Geçmiş',
-          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'time' : 'time-outline'} color={color} focused={focused} />,
+          title: 'Program',
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen

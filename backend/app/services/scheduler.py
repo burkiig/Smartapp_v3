@@ -126,6 +126,23 @@ def _close_expired_sessions():
 
         for session in active_sessions:
             if not session.end_time:
+                # end_time tanımlı değil: 4 saatten uzun açık kalan oturumları kapat
+                # Bu durum, öğretmenin oturumu manuel kapatmayı unuttuğu senaryoya karşı korur.
+                if session.created_at is not None:
+                    from datetime import timezone as _utc
+                    created = session.created_at
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=_utc.utc)
+                    age_hours = (datetime.now(_ISTANBUL).astimezone(_utc.utc) - created).total_seconds() / 3600
+                    if age_hours >= 4:
+                        session.status = "closed"
+                        db.commit()
+                        SessionService(db).auto_mark_absent_students(session.id)
+                        logger.warning(
+                            "[Scheduler] Force-closed session %s (no end_time, open %.1f hours)",
+                            session.id,
+                            age_hours,
+                        )
                 continue
             end_time = _parse_time(session.end_time)
             if end_time is None:

@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.attendance import FinalAttendanceRecord
 from app.models.session import AttendanceSession
 from app.models.course import Course, Enrollment
+from app.models.course_instructor import CourseInstructor
 from app.models.audit_log import AuditLog
 from app.security.dependencies import get_current_user, require_instructor, require_admin
 
@@ -64,7 +65,12 @@ def _admin_stats(db: Session) -> dict:
 
 
 def _instructor_stats(user: User, db: Session) -> dict:
-    courses = db.query(Course).filter(Course.instructor_id == user.id).all()
+    courses = (
+        db.query(Course)
+        .join(CourseInstructor, CourseInstructor.course_id == Course.id)
+        .filter(CourseInstructor.instructor_id == user.id)
+        .all()
+    )
     course_ids = [c.id for c in courses]
 
     total_enrolled = db.query(Enrollment).filter(
@@ -117,7 +123,8 @@ def _student_stats(user: User, db: Session) -> dict:
         "enrolled_courses": len(course_ids),
         "total_sessions_attended": present_count,
         "total_sessions": total_records,
-        "attendance_rate": attendance_rate,
+        "attendance_rate": attendance_rate if total_records > 0 else None,
+        "has_attendance_data": total_records > 0,
     }
 
 
@@ -130,7 +137,12 @@ def course_performance(
     if current_user.role == "admin":
         courses = db.query(Course).all()
     else:
-        courses = db.query(Course).filter(Course.instructor_id == current_user.id).all()
+        courses = (
+            db.query(Course)
+            .join(CourseInstructor, CourseInstructor.course_id == Course.id)
+            .filter(CourseInstructor.instructor_id == current_user.id)
+            .all()
+        )
 
     result = []
     for course in courses:
@@ -138,11 +150,12 @@ def course_performance(
         total_sessions = db.query(AttendanceSession).filter(
             AttendanceSession.course_id == course.id
         ).count()
-        total_records = db.query(FinalAttendanceRecord).filter(
-            FinalAttendanceRecord.course_id == course.id
+        present_records = db.query(FinalAttendanceRecord).filter(
+            FinalAttendanceRecord.course_id == course.id,
+            FinalAttendanceRecord.status == "present",
         ).count()
         if total_sessions > 0 and enrolled > 0:
-            rate = round((total_records / (total_sessions * enrolled)) * 100, 1)
+            rate = round((present_records / (total_sessions * enrolled)) * 100, 1)
         else:
             rate = 0
         result.append({
@@ -165,7 +178,12 @@ def recent_activity(
     if current_user.role == "student":
         q = q.filter(FinalAttendanceRecord.student_id == current_user.id)
     elif current_user.role == "instructor":
-        courses = db.query(Course).filter(Course.instructor_id == current_user.id).all()
+        courses = (
+            db.query(Course)
+            .join(CourseInstructor, CourseInstructor.course_id == Course.id)
+            .filter(CourseInstructor.instructor_id == current_user.id)
+            .all()
+        )
         course_ids = [c.id for c in courses]
         if course_ids:
             q = q.filter(FinalAttendanceRecord.course_id.in_(course_ids))

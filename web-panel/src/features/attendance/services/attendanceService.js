@@ -13,6 +13,9 @@ const FLAG_REASON_LABELS = {
   manual_no_face:           'Manuel yoklama (yüzsüz)',
   manual_no_face_ref:       'Yüz referansı bulunamadı',
   face_not_enrolled:        'Yüz kaydı yok',
+  fake_gps_detected:        'Sahte GPS tespit edildi',
+  suspicious_accuracy:      'Şüpheli GPS hassasiyeti',
+  low_accuracy:             'GPS doğruluğu düşük',
 };
 
 export const STATUS_LABELS = {
@@ -42,9 +45,7 @@ function normalizeRecord(r) {
     reasonType: r.flag_reason === 'duplicate_attendance' ? 'error' : 'warning',
     flagReason: r.flag_reason,
     method: buildMethod(r.verification_steps),
-    location: r.verification_steps?.location_distance_m != null
-      ? `${r.verification_steps.location_distance_m} m`
-      : '—',
+    location: buildLocation(r.verification_steps),
     status: r.status || 'present',
     isFlagged: r.is_flagged,
     is_flagged: r.is_flagged,
@@ -58,6 +59,23 @@ function buildMethod(steps = {}) {
   if (steps?.face_ok !== false)     parts.push('Yüz');
   if (steps?.qr_ok !== false)       parts.push('QR');
   return parts.length ? parts.join(' + ') : 'QR';
+}
+
+function buildLocation(steps = {}) {
+  if (!steps) return '—';
+  if (steps.fake_gps_detected) {
+    const acc = steps.gps_accuracy_m != null ? ` (±${Math.round(steps.gps_accuracy_m)}m)` : '';
+    return `Sahte GPS${acc}`;
+  }
+  if (steps.suspicious_accuracy) {
+    const acc = steps.gps_accuracy_m != null ? ` (±${steps.gps_accuracy_m}m)` : '';
+    return `Şüpheli GPS${acc}`;
+  }
+  if (steps.location_skipped) return 'Konum yok';
+  if (steps.location_distance_m != null) {
+    return `${Math.round(steps.location_distance_m)} m`;
+  }
+  return '—';
 }
 
 // ── Flagged attendance ────────────────────────────────────────────────────────
@@ -74,9 +92,9 @@ export const fetchFlaggedRecords = async () => {
 
 export const approveFlaggedRecord = async (recordId) => {
   try {
-    await apiClient.patch(`/attendance/${recordId}/review`, {
-      is_flagged: false,
+    await apiClient.patch(`/attendance/${recordId}/override`, {
       status: 'present',
+      note: 'Öğretmen onayladı',
     });
     return { success: true };
   } catch (err) {
@@ -87,9 +105,9 @@ export const approveFlaggedRecord = async (recordId) => {
 
 export const rejectFlaggedRecord = async (recordId) => {
   try {
-    await apiClient.patch(`/attendance/${recordId}/review`, {
-      is_flagged: false,
+    await apiClient.patch(`/attendance/${recordId}/override`, {
       status: 'absent',
+      note: 'Öğretmen reddetti',
     });
     return { success: true };
   } catch (err) {
@@ -100,9 +118,9 @@ export const rejectFlaggedRecord = async (recordId) => {
 
 export const undoFlaggedRecord = async (recordId) => {
   try {
-    await apiClient.patch(`/attendance/${recordId}/review`, {
-      is_flagged: true,
-      status: 'present',
+    await apiClient.patch(`/attendance/${recordId}/override`, {
+      status: 'pending_review',
+      note: 'Karar geri alındı',
     });
     return { success: true };
   } catch (err) {

@@ -14,6 +14,7 @@ _DEFAULTS = {
     "qr_token_ttl_seconds": ("60", "QR kod geçerlilik süresi (saniye)"),
     "min_attendance_rate": ("70", "Minimum devam oranı (%)"),
     "geofence_radius_m": ("50", "Konum doğrulama yarıçapı (metre)"),
+    "fake_gps_max_attempts": ("3", "Sahte GPS denemesi eşiği — bu sayıya ulaşınca öğretmene bildirim gönderilir"),
 }
 
 

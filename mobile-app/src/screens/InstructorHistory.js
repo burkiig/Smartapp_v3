@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { dashboard, sessions } from '@/services/api';
+import { dashboard, sessions, courses } from '@/services/api';
 import { Colors, Shadows } from '@/config/theme';
 
 const SESSION_STATUS = {
@@ -18,16 +18,26 @@ const SESSION_STATUS = {
 
 export default function InstructorHistory() {
   const router = useRouter();
-  const [stats,    setStats]    = useState(null);
-  const [list,     setList]     = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [refresh,  setRefresh]  = useState(false);
+  const [stats,      setStats]      = useState(null);
+  const [list,       setList]       = useState([]);
+  const [courseMap,  setCourseMap]  = useState({});
+  const [loading,    setLoading]    = useState(true);
+  const [refresh,    setRefresh]    = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, l] = await Promise.allSettled([dashboard.stats(), sessions.list()]);
+      const [s, l, c] = await Promise.allSettled([
+        dashboard.stats(),
+        sessions.list(),
+        courses.list(),
+      ]);
       if (s.status === 'fulfilled') setStats(s.value);
       if (l.status === 'fulfilled') setList(Array.isArray(l.value) ? l.value : []);
+      if (c.status === 'fulfilled') {
+        const map = {};
+        (c.value || []).forEach(course => { map[course.id] = course; });
+        setCourseMap(map);
+      }
     } catch {}
     finally { setLoading(false); setRefresh(false); }
   }, []);
@@ -38,24 +48,38 @@ export default function InstructorHistory() {
 
   const renderItem = ({ item }) => {
     const startDate = item.started_at ? new Date(item.started_at) : null;
-    const s = SESSION_STATUS[item.status] || SESSION_STATUS.ended;
+    const s         = SESSION_STATUS[item.status] || SESSION_STATUS.ended;
+    const course    = courseMap[item.course_id];
+    const isActive  = item.status === 'active';
 
     return (
       <TouchableOpacity
         style={styles.card}
-        onPress={() => router.push({ pathname: '/class-details', params: { courseId: item.course_id, sessionId: item.id } })}
+        onPress={() => router.push({
+          pathname: '/class-details',
+          params: { courseId: item.course_id, sessionId: item.id, code: course?.code ?? '', title: course?.name ?? '' },
+        })}
         activeOpacity={0.75}
       >
-        <View style={styles.cardLeft}>
-          {item.status === 'active' ? (
-            <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
-          ) : (
-            <View style={[styles.statusDot, { backgroundColor: Colors.border }]} />
-          )}
+        {/* Sol ikon */}
+        <View style={[styles.cardIconBox, { backgroundColor: isActive ? Colors.success + '22' : Colors.primaryMuted }]}>
+          <Ionicons
+            name={isActive ? 'play-circle' : 'book-outline'}
+            size={20}
+            color={isActive ? Colors.success : Colors.primary}
+          />
         </View>
+
         <View style={styles.cardBody}>
           <View style={styles.cardTop}>
-            <Text style={styles.sessionTitle}>Ders #{item.course_id} · Oturum #{item.id}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.courseCode} numberOfLines={1}>
+                {course?.code ?? `Ders #${item.course_id}`}
+              </Text>
+              <Text style={styles.courseName} numberOfLines={1}>
+                {course?.name ?? `Oturum #${item.id}`}
+              </Text>
+            </View>
             <View style={[styles.pill, { backgroundColor: s.bg }]}>
               <Text style={[styles.pillText, { color: s.color }]}>{s.label}</Text>
             </View>
@@ -70,6 +94,13 @@ export default function InstructorHistory() {
                 <Text style={styles.metaText}>
                   {startDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                 </Text>
+                {course?.enrolled_count != null && (
+                  <>
+                    <Text style={styles.metaDot}>·</Text>
+                    <Ionicons name="people-outline" size={12} color={Colors.textMuted} />
+                    <Text style={styles.metaText}>{course.enrolled_count} öğrenci</Text>
+                  </>
+                )}
               </>
             )}
           </View>
@@ -161,12 +192,12 @@ const styles = StyleSheet.create({
 
   listContent: { paddingHorizontal: 20, paddingBottom: 20 },
   card:        { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.card, borderRadius: 14, padding: 14, marginBottom: 10, ...Shadows.xs },
-  cardLeft:    { alignItems: 'center', paddingHorizontal: 4 },
-  statusDot:   { width: 8, height: 8, borderRadius: 4 },
-  cardBody:    { flex: 1, gap: 6 },
-  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sessionTitle:{ fontSize: 14, fontWeight: '600', color: Colors.text },
-  pill:        { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 20 },
+  cardIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  cardBody:    { flex: 1, gap: 5 },
+  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  courseCode:  { fontSize: 14, fontWeight: '700', color: Colors.text },
+  courseName:  { fontSize: 12, color: Colors.textSecondary, fontWeight: '500', marginTop: 1 },
+  pill:        { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 20, flexShrink: 0 },
   pillText:    { fontSize: 11, fontWeight: '700' },
   metaRow:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText:    { fontSize: 12, color: Colors.textMuted },

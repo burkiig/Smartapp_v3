@@ -341,10 +341,45 @@ function ScheduleInput({ value, onChange }) {
   );
 }
 
+// ── InstructorMultiSelect ──────────────────────────────────────────────────────
+// Checkbox tabanlı çoklu hoca seçici.
+
+function InstructorMultiSelect({ instructors, selectedIds, onChange }) {
+  const toggle = (id) => {
+    if (selectedIds.includes(id)) {
+      onChange(selectedIds.filter(x => x !== id));
+    } else {
+      onChange([...selectedIds, id]);
+    }
+  };
+  return (
+    <div className="instructor-multi-select">
+      {instructors.length === 0 && <p style={{ color: '#94a3b8', fontSize: 13 }}>Öğretmen bulunamadı</p>}
+      {instructors.map(i => (
+        <label key={i.id} className={`instructor-option ${selectedIds.includes(i.id) ? 'selected' : ''}`}>
+          <input
+            type="checkbox"
+            checked={selectedIds.includes(i.id)}
+            onChange={() => toggle(i.id)}
+          />
+          <span className="instructor-name">{i.name}</span>
+          {i.department && <span className="instructor-dept">{i.department}</span>}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 // ── AddCourseModal ─────────────────────────────────────────────────────────────
 
 function AddCourseModal({ instructors, onClose, onSuccess }) {
-  const [form, setForm] = useState({ code: '', name: '', instructor_id: '', schedule: { days: [], start_time: '09:00', end_time: '10:00' }, default_duration_minutes: '' });
+  const [form, setForm] = useState({
+    code: '', name: '',
+    schedule: { days: [], start_time: '09:00', end_time: '10:00' },
+    default_duration_minutes: '',
+    shared_class_id: '',
+  });
+  const [selectedInstructorIds, setSelectedInstructorIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -353,11 +388,17 @@ function AddCourseModal({ instructors, onClose, onSuccess }) {
     e.preventDefault();
     setLoading(true); setError('');
     try {
-      await apiClient.post('/courses', {
+      const primaryId = selectedInstructorIds[0] ?? null;
+      const created = await apiClient.post('/courses', {
         ...form,
-        instructor_id: form.instructor_id ? Number(form.instructor_id) : null,
+        instructor_id: primaryId,
         default_duration_minutes: form.default_duration_minutes ? Number(form.default_duration_minutes) : null,
+        shared_class_id: form.shared_class_id ? Number(form.shared_class_id) : null,
       });
+      // Ek hocaları ekle (2. ve sonrası)
+      for (const id of selectedInstructorIds.slice(1)) {
+        await apiClient.post(`/courses/${created.id}/instructors`, { instructor_id: id }).catch(() => {});
+      }
       onSuccess(); onClose();
     } catch (err) {
       setError(err.message || 'Ders olusturulamadi');
@@ -366,7 +407,7 @@ function AddCourseModal({ instructors, onClose, onSuccess }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className="modal-content modal-content-wide" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Yeni Ders</h2>
           <button className="modal-close" onClick={onClose} aria-label="Kapat">✕</button>
@@ -385,29 +426,44 @@ function AddCourseModal({ instructors, onClose, onSuccess }) {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Ogretmen</label>
-              <select value={form.instructor_id} onChange={e => set('instructor_id', e.target.value)}>
-                <option value="">Seciniz</option>
-                {instructors.map(i => (
-                  <option key={i.id} value={i.id}>{i.name}{i.department ? ` (${i.department})` : ''}</option>
-                ))}
-              </select>
+              <label>
+                Ogretmenler
+                {selectedInstructorIds.length > 0 && (
+                  <span className="instructor-count-badge">{selectedInstructorIds.length} seçildi</span>
+                )}
+              </label>
+              <InstructorMultiSelect
+                instructors={instructors}
+                selectedIds={selectedInstructorIds}
+                onChange={setSelectedInstructorIds}
+              />
+              {selectedInstructorIds.length > 1 && (
+                <span className="form-hint">İlk seçilen birincil öğretmen olarak atanır.</span>
+              )}
             </div>
             <div className="form-group" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
               <label>Program</label>
               <ScheduleInput value={form.schedule} onChange={v => set('schedule', v)} />
             </div>
           </div>
-          <div className="form-group">
-            <label>Varsayılan Oturum Süresi (dakika) — Şablon</label>
-            <input
-              type="number"
-              min="10"
-              max="360"
-              placeholder="Örn: 90"
-              value={form.default_duration_minutes}
-              onChange={e => set('default_duration_minutes', e.target.value)}
-            />
+          <div className="form-row">
+            <div className="form-group">
+              <label>Varsayılan Oturum Süresi (dk)</label>
+              <input
+                type="number" min="10" max="360" placeholder="Örn: 90"
+                value={form.default_duration_minutes}
+                onChange={e => set('default_duration_minutes', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>Paralel Ders Grubu ID</label>
+              <input
+                type="number" min="1" placeholder="Örn: 5 (boş bırakabilirsiniz)"
+                value={form.shared_class_id}
+                onChange={e => set('shared_class_id', e.target.value)}
+              />
+              <span className="form-hint">Aynı ID'ye sahip dersler ortak yoklama grubu oluşturur.</span>
+            </div>
           </div>
           <div className="modal-buttons">
             <button type="button" className="btn-cancel" onClick={onClose}>Iptal</button>
@@ -428,23 +484,48 @@ function EditCourseModal({ course, instructors, onClose, onSuccess }) {
   const [form, setForm] = useState({
     code: course.code || '',
     name: course.name || '',
-    instructor_id: course.instructor_id || '',
     schedule: defaultSchedule,
     default_duration_minutes: course.default_duration_minutes || '',
+    shared_class_id: course.shared_class_id || '',
   });
+  const [selectedInstructorIds, setSelectedInstructorIds] = useState(course.instructor_ids || (course.instructor_id ? [course.instructor_id] : []));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    apiClient.get(`/courses/${course.id}/instructors`)
+      .then(data => {
+        const ids = (data || []).map(i => i.id);
+        if (ids.length > 0) setSelectedInstructorIds(ids);
+      })
+      .catch(() => {});
+  }, [course.id]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
+      const primaryId = selectedInstructorIds[0] ?? null;
       await apiClient.patch(`/courses/${course.id}`, {
         ...form,
-        instructor_id: form.instructor_id ? Number(form.instructor_id) : null,
+        instructor_id: primaryId,
         default_duration_minutes: form.default_duration_minutes ? Number(form.default_duration_minutes) : null,
+        shared_class_id: form.shared_class_id ? Number(form.shared_class_id) : null,
       });
+      // Hoca listesini senkronize et
+      const currentRes = await apiClient.get(`/courses/${course.id}/instructors`).catch(() => []);
+      const currentIds = (currentRes || []).map(i => i.id);
+      for (const id of selectedInstructorIds) {
+        if (!currentIds.includes(id)) {
+          await apiClient.post(`/courses/${course.id}/instructors`, { instructor_id: id }).catch(() => {});
+        }
+      }
+      for (const id of currentIds) {
+        if (!selectedInstructorIds.includes(id)) {
+          await apiClient.delete(`/courses/${course.id}/instructors/${id}`).catch(() => {});
+        }
+      }
       onSuccess(); onClose();
     } catch (err) {
       setError(err.message || 'Guncellenemedi');
@@ -453,7 +534,7 @@ function EditCourseModal({ course, instructors, onClose, onSuccess }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className="modal-content modal-content-wide" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Ders Duzenle — {course.code}</h2>
           <button className="modal-close" onClick={onClose} aria-label="Kapat">✕</button>
@@ -472,29 +553,44 @@ function EditCourseModal({ course, instructors, onClose, onSuccess }) {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Ogretmen Ata</label>
-              <select value={form.instructor_id} onChange={e => set('instructor_id', e.target.value)}>
-                <option value="">Seciniz</option>
-                {instructors.map(i => (
-                  <option key={i.id} value={i.id}>{i.name}{i.department ? ` (${i.department})` : ''}</option>
-                ))}
-              </select>
+              <label>
+                Ogretmenler
+                {selectedInstructorIds.length > 0 && (
+                  <span className="instructor-count-badge">{selectedInstructorIds.length} seçildi</span>
+                )}
+              </label>
+              <InstructorMultiSelect
+                instructors={instructors}
+                selectedIds={selectedInstructorIds}
+                onChange={setSelectedInstructorIds}
+              />
+              {selectedInstructorIds.length > 1 && (
+                <span className="form-hint">İlk seçilen birincil öğretmen olarak atanır.</span>
+              )}
             </div>
             <div className="form-group" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
               <label>Program</label>
               <ScheduleInput value={form.schedule} onChange={v => set('schedule', v)} />
             </div>
           </div>
-          <div className="form-group">
-            <label>Varsayılan Oturum Süresi (dakika) — Şablon</label>
-            <input
-              type="number"
-              min="10"
-              max="360"
-              placeholder="Örn: 90"
-              value={form.default_duration_minutes}
-              onChange={e => set('default_duration_minutes', e.target.value)}
-            />
+          <div className="form-row">
+            <div className="form-group">
+              <label>Varsayılan Oturum Süresi (dk)</label>
+              <input
+                type="number" min="10" max="360" placeholder="Örn: 90"
+                value={form.default_duration_minutes}
+                onChange={e => set('default_duration_minutes', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>Paralel Ders Grubu ID</label>
+              <input
+                type="number" min="1" placeholder="Boş = bağımsız ders"
+                value={form.shared_class_id}
+                onChange={e => set('shared_class_id', e.target.value)}
+              />
+              <span className="form-hint">Aynı ID'ye sahip dersler ortak yoklama grubu oluşturur.</span>
+            </div>
           </div>
           <div className="modal-buttons">
             <button type="button" className="btn-cancel" onClick={onClose}>Iptal</button>
@@ -1111,7 +1207,12 @@ export const AdminDashboardPage = ({ user, onLogout }) => {
           {courses.length === 0
             ? <p className="empty-text">Henuz ders yok</p>
             : courses.map(c => {
-              const instructor = instructors.find(i => i.id === c.instructor_id);
+              const courseInstructorIds = c.instructor_ids?.length
+                ? c.instructor_ids
+                : (c.instructor_id ? [c.instructor_id] : []);
+              const courseInstructors = courseInstructorIds
+                .map(id => instructors.find(i => i.id === id))
+                .filter(Boolean);
               return (
                 <div key={c.id} className="course-card">
                   <div className="course-header">
@@ -1121,11 +1222,18 @@ export const AdminDashboardPage = ({ user, onLogout }) => {
                   <div className="course-body">
                     <p className="course-name">{c.name}</p>
                     <p className="course-meta">
-                      Ogretmen: {instructor
-                        ? <strong>{instructor.name}{instructor.department ? ` — ${instructor.department}` : ''}</strong>
-                        : <em style={{ color: '#94a3b8' }}>Atanmamis</em>
+                      {courseInstructors.length === 0
+                        ? <><span>Ogretmen: </span><em style={{ color: '#94a3b8' }}>Atanmamis</em></>
+                        : courseInstructors.length === 1
+                          ? <><span>Ogretmen: </span><strong>{courseInstructors[0].name}</strong></>
+                          : <><span>Ogretmenler: </span><strong>{courseInstructors.map(i => i.name).join(', ')}</strong></>
                       }
                     </p>
+                    {c.shared_class_id && (
+                      <p className="course-meta course-parallel-badge">
+                        Paralel Grup #{c.shared_class_id}
+                      </p>
+                    )}
                     {c.schedule && typeof c.schedule === 'object' && c.schedule.days?.length > 0 && (
                       <p className="course-meta">Program: {c.schedule.days.map(d => d.slice(0,3)).join(', ')} {c.schedule.start_time}–{c.schedule.end_time}</p>
                     )}

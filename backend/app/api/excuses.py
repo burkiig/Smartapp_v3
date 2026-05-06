@@ -8,6 +8,7 @@ from app.schemas.excuse import ExcuseCreate, ExcuseReview, ExcuseResponse
 from app.repositories.excuse_repo import ExcuseRepository
 from app.security.dependencies import get_current_user, require_student, require_instructor
 from app.models.user import User
+from app.models.attendance import FinalAttendanceRecord
 from app.services.excuse_service import upload_excuse_document, get_excuse_signed_url
 
 router = APIRouter()
@@ -38,6 +39,19 @@ def submit_excuse(
     current_user: User = Depends(require_student),
     db: Session = Depends(get_db),
 ):
+    # Öğrenci bu oturum için zaten yoklama atmışsa mazeret kabul etme
+    if data.session_id is not None:
+        existing_attendance = db.query(FinalAttendanceRecord).filter(
+            FinalAttendanceRecord.student_id == current_user.id,
+            FinalAttendanceRecord.session_id == data.session_id,
+            FinalAttendanceRecord.status == "present",
+        ).first()
+        if existing_attendance:
+            raise HTTPException(
+                status_code=409,
+                detail="Bu oturum için zaten yoklama kaydınız mevcut, mazeret eklenemez",
+            )
+
     repo = ExcuseRepository(db)
     return repo.create(
         student_id=current_user.id,
@@ -82,6 +96,26 @@ def get_excuse(
     return excuse
 
 
+def _sync_attendance_for_excuse(db: Session, excuse, new_status: str) -> None:
+    """Mazeret kararını ilgili FinalAttendanceRecord'a yansıt.
+
+    approved  → attendance status = 'excused'
+    rejected  → attendance status = 'absent'   (zaten yoksa dokunma)
+    pending   → hiç değiştirme
+    """
+    if new_status not in ("approved", "rejected"):
+        return
+    if not excuse.session_id:
+        return
+    record = db.query(FinalAttendanceRecord).filter(
+        FinalAttendanceRecord.student_id == excuse.student_id,
+        FinalAttendanceRecord.session_id == excuse.session_id,
+    ).first()
+    if record:
+        record.status = "excused" if new_status == "approved" else "absent"
+        db.commit()
+
+
 @router.patch("/{excuse_id}", response_model=ExcuseResponse)
 def review_excuse(
     excuse_id: int,
@@ -95,7 +129,9 @@ def review_excuse(
     excuse = repo.get_by_id(excuse_id)
     if not excuse:
         raise HTTPException(status_code=404, detail="Mazeret bulunamadı")
-    return repo.update(excuse, **data.model_dump(exclude_none=True))
+    updated = repo.update(excuse, **data.model_dump(exclude_none=True))
+    _sync_attendance_for_excuse(db, excuse, data.status)
+    return updated
 
 
 @router.get("/{excuse_id}/document")
@@ -160,6 +196,7 @@ def bulk_review_excuses(
             continue
         repo.update(excuse, status=data.status,
                     instructor_notes=data.instructor_notes or excuse.instructor_notes)
+        _sync_attendance_for_excuse(db, excuse, data.status)
         updated.append(excuse_id)
 
     return {

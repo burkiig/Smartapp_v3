@@ -97,20 +97,23 @@ export const ExcuseDetailsModal = ({ excuse, onClose, onApprove, onReject }) => 
           <p className="excuse-description">{excuse.excuseDescription || excuse.description}</p>
         </div>
 
-        {excuse.documents && excuse.documents.length > 0 && (
+        {(excuse.hasDocument || (excuse.documents && excuse.documents.length > 0)) && (
           <div className="excuse-section">
             <h3>Destekleyici Belgeler</h3>
             <div className="excuse-documents">
-              {excuse.documents.map((doc, index) => (
+              {(excuse.documents && excuse.documents.length > 0
+                ? excuse.documents
+                : [{ name: 'Belge', excuseId: excuse.id }]
+              ).map((doc, index) => (
                 <div key={index} className="excuse-document-item">
                   <span className="doc-icon">📄</span>
-                  <span className="doc-name">{doc.name}</span>
+                  <span className="doc-name">{doc.name || 'Belge'}</span>
                   <button
                     className="doc-view-btn"
                     disabled={docLoading}
                     onClick={async () => {
                       setDocLoading(true);
-                      const result = await fetchExcuseDocumentUrl(doc.excuseId);
+                      const result = await fetchExcuseDocumentUrl(doc.excuseId ?? excuse.id);
                       setDocLoading(false);
                       if (result.success) {
                         window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
@@ -119,7 +122,29 @@ export const ExcuseDetailsModal = ({ excuse, onClose, onApprove, onReject }) => 
                       }
                     }}
                   >
-                    {docLoading ? 'Yükleniyor...' : 'Görüntüle'}
+                    {docLoading ? 'Yükleniyor...' : '🔍 Görüntüle'}
+                  </button>
+                  <button
+                    className="doc-download-btn"
+                    disabled={docLoading}
+                    title="Belgeyi indir"
+                    onClick={async () => {
+                      setDocLoading(true);
+                      const result = await fetchExcuseDocumentUrl(doc.excuseId ?? excuse.id);
+                      setDocLoading(false);
+                      if (result.success) {
+                        const a = document.createElement('a');
+                        a.href = result.signedUrl;
+                        a.download = doc.name || 'mazeret-belgesi';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                      } else {
+                        alert('Belge indirilemedi: ' + result.error);
+                      }
+                    }}
+                  >
+                    ⬇ İndir
                   </button>
                 </div>
               ))}

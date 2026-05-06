@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { API_URL } from '@/config/env';
+import eventBus from '@/utils/eventBus';
 
 const BASE_URL = `${API_URL}/api/v1`;
 const TIMEOUT_MS = 30000;         // 30s — base64 fotoğraf upload için yeterli
@@ -87,6 +88,10 @@ async function request(method, path, body = null, customToken = null) {
         }
         return await retryResponse.json();
       }
+      // Token yenilenemedi → tüm uygulama katmanını bilgilendir
+      await SecureStore.deleteItemAsync('access_token').catch(() => {});
+      await SecureStore.deleteItemAsync('refresh_token').catch(() => {});
+      eventBus.emit('FORCE_LOGOUT');
       const loginError = new Error('Oturum süresi doldu');
       loginError.requiresLogin = true;
       throw loginError;
@@ -130,6 +135,33 @@ async function normalizeResponse(promiseFn) {
   }
 }
 
+async function uploadFile(path, fileUri, fileName, mimeType) {
+  const token = await getStoredToken();
+  const url = `${BASE_URL}${path}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+
+  const formData = new FormData();
+  formData.append('file', { uri: fileUri, name: fileName, type: mimeType });
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || data.message || `HTTP ${response.status}`);
+    return data;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error('İstek zaman aşımına uğradı');
+    throw err;
+  }
+}
+
 const apiAdapter = {
   // ── Raw API ──────────────────────────────────────────────────────────────
   get: (path) => request('GET', path),
@@ -138,6 +170,7 @@ const apiAdapter = {
   patch: (path, body) => request('PATCH', path, body),
   delete: (path) => request('DELETE', path),
   postWithToken: (path, body, token) => request('POST', path, body, token),
+  uploadFile: (path, fileUri, fileName, mimeType) => uploadFile(path, fileUri, fileName, mimeType),
 
   // ── Normalized API ───────────────────────────────────────────────────────
   getNormalized:    (path)        => normalizeResponse(() => request('GET',    path)),

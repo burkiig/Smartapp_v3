@@ -20,7 +20,11 @@ class ExcuseReview(BaseModel):
 class ExcuseResponse(BaseModel):
     id: int
     student_id: int
+    student_name: Optional[str] = None
+    student_number: Optional[str] = None
     course_id: int
+    course_code: Optional[str] = None
+    course_name: Optional[str] = None
     session_id: Optional[int] = None
     session_date: str
     excuse_type: str

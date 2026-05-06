@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  ScrollView, Alert, ActivityIndicator, RefreshControl,
+  ScrollView, Alert, ActivityIndicator, RefreshControl, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useUser } from '@/context/UserContext';
 import { attendance, excuses as excusesApi, disputes as disputesApi } from '@/services/api';
 import { Colors, Shadows } from '@/config/theme';
+import EmptyState from '@/components/EmptyState';
 
 /* ─── Student placeholder ────────────────────────────────────────────────── */
 function StudentPlaceholder() {
@@ -64,6 +65,7 @@ export default function AttendanceScreen() {
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
   const [processingId, setProcessingId] = useState(null);
+  const [docLoadingId,  setDocLoadingId]  = useState(null);
   const [highlightedSessionId, setHighlightedSessionId] = useState(null);
 
   const fetchAll = useCallback(async () => {
@@ -107,7 +109,10 @@ export default function AttendanceScreen() {
   const handleFlagged = async (record, isFlagged, status) => {
     setProcessingId(record.id);
     try {
-      await attendance.review(record.id, isFlagged, record.flag_reason, status);
+      const note = !isFlagged && status === 'present' ? 'Öğretmen onayladı'
+        : !isFlagged && status === 'absent' ? 'Öğretmen reddetti'
+        : 'Karar geri alındı';
+      await attendance.override(record.id, status === record.status ? 'pending_review' : status, note);
       setFlagged(prev => prev.map(r => r.id === record.id ? { ...r, is_flagged: isFlagged, status } : r));
     } catch (err) { Alert.alert('Hata', err.message || 'İşlem başarısız'); }
     finally { setProcessingId(null); }
@@ -226,9 +231,29 @@ export default function AttendanceScreen() {
     );
   };
 
+  const handleViewDocument = async (excuseId) => {
+    setDocLoadingId(excuseId);
+    try {
+      const res = await excusesApi.getDocumentUrl(excuseId);
+      const url = res?.signed_url;
+      if (!url) { Alert.alert('Hata', 'Belge URL\'si alınamadı'); return; }
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Hata', 'Belge açılamadı: desteklenmeyen URL formatı');
+      }
+    } catch (err) {
+      Alert.alert('Hata', err?.message || 'Belge açılamadı');
+    } finally {
+      setDocLoadingId(null);
+    }
+  };
+
   const renderExcuse = ({ item }) => {
     const b = badge(item.status);
     const busy = processingId === `e-${item.id}`;
+    const docBusy = docLoadingId === item.id;
     const excuseLabels = { medical: 'Sağlık', family: 'Aile', school_activity: 'Okul Etkinliği', transportation: 'Ulaşım', other: 'Diğer' };
     const nameLabel = item.student_name || `Öğrenci #${item.student_id}`;
     const initial = item.student_name ? item.student_name[0].toUpperCase() : '#';
@@ -258,6 +283,22 @@ export default function AttendanceScreen() {
             <Ionicons name="calendar-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.metaText}>{item.session_date}</Text>
           </View>
+        )}
+
+        {item.storage_path && (
+          <TouchableOpacity
+            style={styles.docBtn}
+            disabled={docBusy}
+            onPress={() => handleViewDocument(item.id)}
+          >
+            {docBusy
+              ? <ActivityIndicator size="small" color="#7C3AED" />
+              : <Ionicons name="document-text-outline" size={15} color="#7C3AED" />
+            }
+            <Text style={styles.docBtnText}>
+              {docBusy ? 'Yükleniyor...' : 'Belgeyi Görüntüle'}
+            </Text>
+          </TouchableOpacity>
         )}
 
         {busy ? <ActivityIndicator color="#7C3AED" style={{ marginTop: 12 }} /> : item.status === 'pending' ? (
@@ -369,10 +410,12 @@ export default function AttendanceScreen() {
           }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
           ListEmptyComponent={
-            <View style={styles.centered}>
-              <Ionicons name="checkmark-done-circle-outline" size={56} color={Colors.border} />
-              <Text style={styles.emptyText}>Kayıt bulunamadı</Text>
-            </View>
+            <EmptyState
+              icon="checkmark-done-circle-outline"
+              title="Yoklama kaydı bulunamadı"
+              subtitle="Filtreyi değiştirmeyi veya sayfayı yenilemeyi deneyin"
+              onRetry={onRefresh}
+            />
           }
         />
       )}
@@ -436,6 +479,9 @@ const styles = StyleSheet.create({
   typePill:   { backgroundColor: '#EDE9FE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 8 },
   typeText:   { fontSize: 12, fontWeight: '700', color: '#7C3AED' },
   descText:   { fontSize: 13, color: Colors.textSecondary, marginBottom: 8, lineHeight: 18 },
+
+  docBtn:        { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#EDE9FE', borderWidth: 1, borderColor: '#C4B5FD' },
+  docBtnText:    { fontSize: 13, fontWeight: '600', color: '#7C3AED' },
 
   actions:       { flexDirection: 'row', gap: 10, marginTop: 12 },
   actionBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10 },

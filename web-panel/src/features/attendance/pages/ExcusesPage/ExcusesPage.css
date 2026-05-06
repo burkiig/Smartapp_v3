@@ -238,6 +238,60 @@
   color: var(--error-text, #991b1b);
 }
 
+.act-btn.detail {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
 .act-btn:hover {
   opacity: 0.82;
+}
+
+/* ── Student cell ───────────────────────────────────────────── */
+.student-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.student-name {
+  font-weight: 600;
+  color: var(--text, #0f172a);
+}
+
+.student-number {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.course-code {
+  font-weight: 600;
+  color: var(--text, #0f172a);
+}
+
+/* ── Document column ────────────────────────────────────────── */
+.doc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1.5px solid #c4b5fd;
+  background: #f5f3ff;
+  color: #7c3aed;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+.doc-icon-btn:hover {
+  background: #ede9fe;
+}
+
+.no-doc {
+  color: #cbd5e1;
+  font-size: 0.9rem;
 }

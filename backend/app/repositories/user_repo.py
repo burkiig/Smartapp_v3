@@ -77,6 +77,51 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
-    def delete(self, user: User) -> None:
+    def deactivate(self, user: User) -> User:
+        """Soft delete: kullanıcıyı pasif yapar, veriler korunur."""
+        user.is_active = False
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def hard_delete(self, user: User) -> None:
+        """Gerçek silme: önce bağlı kayıtları temizler.
+        FinalAttendanceRecord ve Excuse student_id nullable=False olduğundan
+        önce bu tablolarda kayıt varsa 409 döner — admin arşivlemeli.
+        """
+        from app.models.attendance import FinalAttendanceRecord, AttendanceAttempt
+        from app.models.course import Enrollment
+        from app.models.face_reference import FaceReference
+        from app.models.excuse import Excuse
+        from fastapi import HTTPException
+
+        has_finals = self.db.query(FinalAttendanceRecord).filter(
+            FinalAttendanceRecord.student_id == user.id
+        ).count()
+        has_excuses = self.db.query(Excuse).filter(
+            Excuse.student_id == user.id
+        ).count()
+
+        if has_finals or has_excuses:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Kullanıcının {has_finals} yoklama kaydı ve {has_excuses} mazereti var. "
+                    "Tarihsel veri kaybını önlemek için önce bu kayıtları dışa aktarın. "
+                    "Sadece pasifleştirmek için force=false kullanın."
+                ),
+            )
+
+        # Güvenli cascade: bağımlı kayıtlar yok
+        self.db.query(AttendanceAttempt).filter(
+            AttendanceAttempt.student_id == user.id
+        ).delete(synchronize_session=False)
+        self.db.query(Enrollment).filter(
+            Enrollment.student_id == user.id
+        ).delete(synchronize_session=False)
+        self.db.query(FaceReference).filter(
+            FaceReference.user_id == user.id
+        ).delete(synchronize_session=False)
+
         self.db.delete(user)
         self.db.commit()

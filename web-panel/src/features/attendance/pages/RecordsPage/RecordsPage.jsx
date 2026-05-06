@@ -1,11 +1,24 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   MdSchool, MdPercent, MdListAlt, MdFlag, MdRefresh, MdExpandMore, MdExpandLess,
-  MdDownload,
+  MdDownload, MdCheckCircle, MdCancel, MdAssignment,
 } from 'react-icons/md';
 import apiClient from '../../../../shared/services/apiClient';
 import { SkeletonStatCard, SkeletonTable } from '../../../../shared/components/Skeleton';
 import './RecordsPage.css';
+
+const STATUS_LABELS = {
+  present:        'Katıldı',
+  absent:         'Katılmadı',
+  excused:        'Mazeretli',
+  pending_review: 'İncelemede',
+};
+
+const OVERRIDE_BTNS = [
+  { status: 'present',  label: 'Katıldı',    cls: 'override-btn-present'  },
+  { status: 'excused',  label: 'Mazeretli',  cls: 'override-btn-excused'  },
+  { status: 'absent',   label: 'Katılmadı',  cls: 'override-btn-absent'   },
+];
 
 export const RecordsPage = () => {
   const [performance, setPerformance] = useState([]);
@@ -14,6 +27,7 @@ export const RecordsPage = () => {
   const [courseFilter, setCourseFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [overriding, setOverriding] = useState(new Set()); // record IDs being saved
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -92,6 +106,25 @@ export const RecordsPage = () => {
       alert(err.message || 'Export hatası');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleOverride = async (record, newStatus) => {
+    if (overriding.has(record.id)) return;
+    setOverriding(prev => new Set(prev).add(record.id));
+    try {
+      await apiClient.patch(`/attendance/${record.id}/override`, {
+        status: newStatus,
+        note: 'Öğretmen tarafından web panelinden güncellendi',
+      });
+      // Optimistic update in local state
+      setRecords(prev => prev.map(r =>
+        r.id === record.id ? { ...r, status: newStatus, is_flagged: false, flag_reason: null } : r
+      ));
+    } catch (err) {
+      alert(err?.response?.data?.detail || err?.message || 'Güncelleme başarısız');
+    } finally {
+      setOverriding(prev => { const n = new Set(prev); n.delete(record.id); return n; });
     }
   };
 
@@ -250,26 +283,41 @@ export const RecordsPage = () => {
                                 <th>Öğrenci No</th>
                                 <th>Tarih / Saat</th>
                                 <th>Durum</th>
+                                <th>İşlem</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {recs.map(r => (
-                                <tr key={r.id}>
-                                  <td>{r.student_name || ('Öğrenci #' + r.student_id)}</td>
-                                  <td>{r.student_number || '—'}</td>
-                                  <td>{r.marked_at ? new Date(r.marked_at).toLocaleString('tr-TR') : '—'}</td>
-                                  <td>
-                                    <span className={`status-badge status-${r.status || 'present'} ${r.is_flagged ? 'flagged' : ''}`}>
-                                      {r.status === 'present' ? 'Mevcut'
-                                        : r.status === 'absent' ? 'Devamsız'
-                                        : r.status === 'excused' ? 'Mazeretli'
-                                        : r.status === 'pending_review' ? 'İncelemede'
-                                        : r.status || 'Mevcut'}
-                                      {r.is_flagged && ' [Şüpheli]'}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
+                              {recs.map(r => {
+                                const isSaving = overriding.has(r.id);
+                                return (
+                                  <tr key={r.id}>
+                                    <td>{r.student_name || ('Öğrenci #' + r.student_id)}</td>
+                                    <td>{r.student_number || '—'}</td>
+                                    <td>{r.marked_at ? new Date(r.marked_at).toLocaleString('tr-TR') : '—'}</td>
+                                    <td>
+                                      <span className={`status-badge status-${r.status || 'present'} ${r.is_flagged ? 'flagged' : ''}`}>
+                                        {STATUS_LABELS[r.status] || r.status || 'Katıldı'}
+                                        {r.is_flagged && ' ⚑'}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <div className="override-btns">
+                                        {OVERRIDE_BTNS.map(btn => (
+                                          <button
+                                            key={btn.status}
+                                            className={`override-btn ${btn.cls} ${r.status === btn.status ? 'active' : ''}`}
+                                            onClick={() => handleOverride(r, btn.status)}
+                                            disabled={isSaving || r.status === btn.status}
+                                            title={btn.label}
+                                          >
+                                            {isSaving && r.status !== btn.status ? '…' : btn.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         )}

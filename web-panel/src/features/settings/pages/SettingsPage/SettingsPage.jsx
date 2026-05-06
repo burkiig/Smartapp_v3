@@ -42,6 +42,7 @@ function AdminSystemSettings() {
     qr_token_ttl_seconds: 'QR Kod Geçerlilik Süresi (saniye)',
     min_attendance_rate: 'Minimum Devam Oranı (%)',
     geofence_radius_m: 'Konum Doğrulama Yarıçapı (metre)',
+    fake_gps_max_attempts: 'Sahte GPS Deneme Eşiği (kaç denemede bildirim)',
   };
 
   if (settings.length === 0) return null;

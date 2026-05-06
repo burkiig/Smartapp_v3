@@ -20,11 +20,14 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { excuses } from '@/services/api';
 import { Colors, Shadows } from '@/config/theme';
 
@@ -46,8 +49,50 @@ export default function ExcuseSubmitScreen() {
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(session_date || today);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attachment, setAttachment] = useState(null); // { uri, name, mimeType }
 
   const isValid = selectedType && description.trim().length >= 10;
+
+  const pickFromGallery = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('İzin Gerekli', 'Fotoğraf seçmek için galeri iznini verin.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.75,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const name = asset.fileName || `belge_${Date.now()}.jpg`;
+      setAttachment({ uri: asset.uri, name, mimeType: asset.mimeType || 'image/jpeg' });
+    }
+  };
+
+  const pickDocument = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      setAttachment({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType || 'application/octet-stream' });
+    }
+  };
+
+  const showAttachmentOptions = () => {
+    Alert.alert(
+      'Belge Ekle',
+      'Nasıl eklemek istersiniz?',
+      [
+        { text: 'Galeriden Fotoğraf', onPress: pickFromGallery },
+        { text: 'Dosya Seç (PDF)', onPress: pickDocument },
+        { text: 'İptal', style: 'cancel' },
+      ]
+    );
+  };
 
   const handleSubmit = async () => {
     if (!isValid) {
@@ -63,7 +108,7 @@ export default function ExcuseSubmitScreen() {
 
     setIsSubmitting(true);
     try {
-      await excuses.submit({
+      const submitted = await excuses.submit({
         courseId: parsedCourseId,
         sessionId: session_id ? parseInt(session_id, 10) : null,
         sessionDate: date,
@@ -71,9 +116,26 @@ export default function ExcuseSubmitScreen() {
         description: description.trim(),
       });
 
+      // Dosya varsa yükle
+      if (attachment && submitted?.id) {
+        try {
+          await excuses.uploadDocument(submitted.id, attachment.uri, attachment.name, attachment.mimeType);
+        } catch {
+          // Belge yükleme başarısız olsa bile mazeret kaydedildi, kullanıcıyı uyar
+          Alert.alert(
+            'Kısmen Başarılı',
+            'Mazeretiniz gönderildi ancak belge yüklenemedi. Lütfen belgeyi daha sonra tekrar ekleyin.',
+            [{ text: 'Tamam', onPress: () => router.back() }]
+          );
+          return;
+        }
+      }
+
       Alert.alert(
         'Mazeret Gönderildi ✅',
-        'Mazeretiniz öğretmene iletildi. Değerlendirme sonucu size bildirilecektir.',
+        attachment
+          ? 'Mazeretiniz ve belgeniz öğretmene iletildi.'
+          : 'Mazeretiniz öğretmene iletildi. Değerlendirme sonucu size bildirilecektir.',
         [{ text: 'Tamam', onPress: () => router.back() }]
       );
     } catch (err) {
@@ -159,12 +221,33 @@ export default function ExcuseSubmitScreen() {
             </Text>
           </View>
 
-          {/* Belge notu */}
-          <View style={styles.infoBox}>
-            <Ionicons name="information-circle-outline" size={18} color="#6366F1" />
-            <Text style={styles.infoText}>
-              Doktor raporu veya diğer belgelerinizi öğretmeninize fiziksel olarak iletebilirsiniz.
-            </Text>
+          {/* Belge Ekleme */}
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>📎 Destekleyici Belge (Opsiyonel)</Text>
+            {attachment ? (
+              <View style={styles.attachmentCard}>
+                {attachment.mimeType?.startsWith('image/') ? (
+                  <Image source={{ uri: attachment.uri }} style={styles.attachmentPreview} resizeMode="cover" />
+                ) : (
+                  <View style={styles.attachmentIcon}>
+                    <Ionicons name="document-text" size={32} color="#6366F1" />
+                  </View>
+                )}
+                <View style={styles.attachmentInfo}>
+                  <Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text>
+                  <Text style={styles.attachmentType}>{attachment.mimeType}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setAttachment(null)} style={styles.attachmentRemove}>
+                  <Ionicons name="close-circle" size={22} color={Colors.error} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.attachmentBtn} onPress={showAttachmentOptions} activeOpacity={0.8}>
+                <Ionicons name="cloud-upload-outline" size={22} color="#6366F1" />
+                <Text style={styles.attachmentBtnText}>Belge / Fotoğraf Ekle</Text>
+                <Text style={styles.attachmentBtnHint}>PDF, JPG, PNG desteklenir</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Gönder */}
@@ -262,6 +345,30 @@ const styles = StyleSheet.create({
     marginTop: 20, borderWidth: 1, borderColor: Colors.primaryLight,
   },
   infoText: { flex: 1, fontSize: 13, color: Colors.primary, lineHeight: 18 },
+
+  attachmentBtn: {
+    borderWidth: 2, borderColor: '#6366F1', borderStyle: 'dashed',
+    borderRadius: 14, padding: 20, alignItems: 'center', gap: 6,
+    backgroundColor: '#F5F3FF',
+  },
+  attachmentBtnText: { fontSize: 15, fontWeight: '700', color: '#6366F1' },
+  attachmentBtnHint: { fontSize: 12, color: Colors.textMuted },
+
+  attachmentCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.card, borderRadius: 14, padding: 12,
+    borderWidth: 1, borderColor: '#6366F1',
+    ...Shadows.xs,
+  },
+  attachmentPreview: { width: 56, height: 56, borderRadius: 10 },
+  attachmentIcon: {
+    width: 56, height: 56, borderRadius: 10,
+    backgroundColor: '#EDE9FE', alignItems: 'center', justifyContent: 'center',
+  },
+  attachmentInfo: { flex: 1 },
+  attachmentName: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  attachmentType: { fontSize: 11, color: Colors.textMuted, marginTop: 2 },
+  attachmentRemove: { padding: 4 },
 
   submitBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,

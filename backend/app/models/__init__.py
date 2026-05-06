@@ -1,5 +1,6 @@
 from app.models.user import User
 from app.models.course import Course, Enrollment
+from app.models.course_instructor import CourseInstructor
 from app.models.room import Room
 from app.models.session import AttendanceSession
 from app.models.attendance import AttendanceAttempt, FinalAttendanceRecord, ClassCancellation
@@ -14,6 +15,7 @@ __all__ = [
     "User",
     "Course",
     "Enrollment",
+    "CourseInstructor",
     "Room",
     "AttendanceSession",
     "AttendanceAttempt",
